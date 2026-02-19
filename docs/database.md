@@ -21,16 +21,20 @@
 
 [3. 수강신청 / 수강취소]
   courses     (READ: status 검증)
-  enrollments (READ: 중복 신청 검증)
-    → enrollments (INSERT: course_id, learner_id)          ← 신청
-    → enrollments (UPDATE: cancelled_at = NOW())           ← 취소
+    → enrollments (UPSERT: ON CONFLICT(course_id, learner_id)
+                    기록 없음          → INSERT
+                    cancelled_at IS NOT NULL → UPDATE SET cancelled_at = NULL, enrolled_at = NOW()
+                    cancelled_at IS NULL     → 에러 (이미 수강 중))  ← 신청/재신청
+    → enrollments (UPDATE: cancelled_at = NOW())                    ← 취소
 
 [4. Learner 대시보드]
   enrollments (WHERE cancelled_at IS NULL)
     → courses     (내 코스 목록)
     → assignments (마감 임박, ORDER BY due_at ASC)
     → submissions (최근 피드백, WHERE status = 'graded')
-  COMPUTE 진행률: COUNT(submissions) / COUNT(published assignments per course)
+  COMPUTE 진행률:
+    - 분자: COUNT(submissions WHERE status != 'resubmission_required')
+    - 분모: COUNT(assignments WHERE status = 'published' AND course_id = ?)
 
 [5. 과제 열람]
   enrollments (READ: 수강 여부 검증)
@@ -43,7 +47,10 @@
 
 [7. 성적 & 피드백]
   submissions JOIN assignments (READ: WHERE learner_id = ?)
-  COMPUTE 코스 총점: SUM(score × weight) / SUM(weight) per course
+  COMPUTE 현재 성적 (채점된 과제만):
+    - 분자: SUM(score × weight) WHERE status = 'graded'
+    - 분모: SUM(weight)         WHERE status = 'graded'
+    - ※ 미제출/미채점 과제는 집계에서 제외 (0점 처리 안 함)
 
 [8. Instructor 대시보드]
   courses     (READ: WHERE instructor_id = ?)
@@ -266,8 +273,9 @@ CREATE INDEX IF NOT EXISTS idx_courses_category_id   ON courses(category_id);
 | enrolled_at | TIMESTAMPTZ | NOT NULL DEFAULT NOW() | 신청 시각 |
 | cancelled_at | TIMESTAMPTZ | NULL 허용 | 취소 시각, NULL = 활성 수강 |
 
-- `(course_id, learner_id)` UNIQUE → 중복 신청 방지
+- `(course_id, learner_id)` UNIQUE → 중복 신청 방지 및 UPSERT(ON CONFLICT) 지원에 필수
 - `cancelled_at IS NULL` 조건으로 활성 수강 여부 판별
+- 재신청 시 새 row INSERT 없이 기존 row UPDATE → 중복 데이터 생성 방지
 
 ```sql
 CREATE TABLE IF NOT EXISTS enrollments (
@@ -276,6 +284,7 @@ CREATE TABLE IF NOT EXISTS enrollments (
   learner_id   UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
   enrolled_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   cancelled_at TIMESTAMPTZ,
+  -- UPSERT 쿼리(ON CONFLICT)를 지원하기 위해 아래 복합 유니크 키 필수
   UNIQUE(course_id, learner_id)
 );
 
@@ -299,7 +308,7 @@ CREATE INDEX IF NOT EXISTS idx_enrollments_course_id  ON enrollments(course_id);
 | weight | NUMERIC(5,2) | NOT NULL, CHECK > 0 | 점수 비중 |
 | allow_late | BOOLEAN | NOT NULL DEFAULT FALSE | 지각 제출 허용 여부 |
 | allow_resubmit | BOOLEAN | NOT NULL DEFAULT FALSE | 재제출 허용 여부 |
-| status | assignment_status | NOT NULL DEFAULT 'draft' | draft \| published \| closed |
+| status | assignment_status | NOT NULL DEFAULT 'draft' | draft \| published \| closed. ※ closed는 강사 수동 강제 마감 전용. 일반 마감은 `status='published' AND NOW() > due_at` 으로 판별 |
 | created_at | TIMESTAMPTZ | NOT NULL DEFAULT NOW() | |
 | updated_at | TIMESTAMPTZ | NOT NULL DEFAULT NOW() | |
 
@@ -313,7 +322,9 @@ CREATE TABLE IF NOT EXISTS assignments (
   weight         NUMERIC(5,2)      NOT NULL CHECK (weight > 0),
   allow_late     BOOLEAN           NOT NULL DEFAULT FALSE,
   allow_resubmit BOOLEAN           NOT NULL DEFAULT FALSE,
-  status         assignment_status NOT NULL DEFAULT 'draft',
+  -- 'closed'는 강사가 수동으로 조기 종료했을 때만 사용.
+  -- 일반적인 마감은 (status='published' AND due_at < NOW()) 로 판단함.
+  status         assignment_status NOT NULL DEFAULT 'draft', -- draft | published | closed
   created_at     TIMESTAMPTZ       NOT NULL DEFAULT NOW(),
   updated_at     TIMESTAMPTZ       NOT NULL DEFAULT NOW()
 );

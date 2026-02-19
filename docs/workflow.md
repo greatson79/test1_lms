@@ -34,8 +34,10 @@
 **처리 (정책)**
 
 * 코스 상태 `published`만 신청 가능
-* 중복 신청 불가
-* `enrollments` 테이블에 기록 생성
+* `enrollments` 테이블 조회:
+  * 기록 없음 → INSERT (신규 신청)
+  * 기록 있음(`cancelled_at IS NOT NULL`) → UPDATE (`cancelled_at = NULL, enrolled_at = NOW()`) (재신청)
+  * 기록 있음(`cancelled_at IS NULL`) → 에러 (이미 수강 중)
 * 수강취소 시 대시보드/내 코스에서 제거, 성적 집계 제외
 
 **출력**
@@ -117,7 +119,10 @@
 
 * 본인 제출물만 조회 가능
 * 과제별 점수, 지각 여부, 재제출 여부, 피드백 표시
-* 코스별 총점 계산(과제 점수 × 비중)
+* 코스별 현재 성적 계산 (채점된 과제만 집계)
+  * 분자: SUM(score × weight) (status = 'graded'인 과제만)
+  * 분모: SUM(weight) (status = 'graded'인 과제만)
+  * ※ 미제출/미채점 과제는 0점 처리하지 않고 집계에서 제외
 
 **출력**
 
@@ -215,8 +220,10 @@
 **처리 (정책)**
 
 * `draft → published` 전환 시 학습자 노출
-* 마감일 이후 자동 `closed`
-* 수동 마감 가능
+* 유효 상태(Effective Status) 판별:
+  * DB `status = 'closed'` → 마감 (강사 수동 강제 마감)
+  * DB `status = 'published'` AND `NOW() > due_at` → 마감 (자동 마감)
+  * 그 외 → 진행 중
 * 마감 후 제출 불가, 채점만 가능
 
 **출력**
