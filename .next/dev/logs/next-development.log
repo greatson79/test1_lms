@@ -1,0 +1,83 @@
+[00:00:01.088] Server  LOG     ✓ Ready in 847ms
+[00:00:26.899] Server  LOG     ○ Compiling / ...
+[00:01:13.757] Browser INFO    %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
+[00:03:36.062] Server  LOG     ✓ Compiled in 167ms
+[00:06:18.977] Browser INFO    %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
+[01:00:14.129] Server  ERROR   ⨯ ./node_modules/next/package.json:1:1
+Error parsing package.json file
+package.json is not parseable: invalid JSON: EOF while parsing a value at line 1 column 0
+
+
+[01:00:14.437] Server  ERROR   ModuleBuildError: ./node_modules/next/package.json:1:1
+Error parsing package.json file
+package.json is not parseable: invalid JSON: EOF while parsing a value at line 1 column 0
+
+
+[01:00:14.531] Server  ERROR   Error: ENOENT: no such file or directory, open '/Users/kylej.choi/Desktop/Ai works/test1/.next/dev/server/pages/_app/build-manifest.json'
+[01:00:14.656] Server  ERROR   ⨯ ./node_modules/next/package.json:1:1
+Error parsing package.json file
+package.json is not parseable: invalid JSON: EOF while parsing a value at line 1 column 0
+
+
+[01:00:14.694] Server  ERROR   ModuleBuildError: ./node_modules/next/package.json:1:1
+Error parsing package.json file
+package.json is not parseable: invalid JSON: EOF while parsing a value at line 1 column 0
+
+
+[01:00:14.727] Server  ERROR   Error: ENOENT: no such file or directory, open '/Users/kylej.choi/Desktop/Ai works/test1/.next/dev/server/pages/_app/build-manifest.json'
+[01:00:14.732] Server  ERROR   ⨯ ./node_modules/next/package.json:1:1
+Error parsing package.json file
+package.json is not parseable: invalid JSON: EOF while parsing a value at line 1 column 0
+
+
+[01:00:14.764] Server  ERROR   ModuleBuildError: ./node_modules/next/package.json:1:1
+Error parsing package.json file
+package.json is not parseable: invalid JSON: EOF while parsing a value at line 1 column 0
+
+
+[01:00:14.804] Server  ERROR   Error: ENOENT: no such file or directory, open '/Users/kylej.choi/Desktop/Ai works/test1/.next/dev/server/pages/_app/build-manifest.json'
+[01:00:14.811] Server  ERROR   ⨯ ./node_modules/next/package.json:1:1
+Error parsing package.json file
+package.json is not parseable: invalid JSON: EOF while parsing a value at line 1 column 0
+
+
+[01:00:14.838] Server  ERROR   ModuleBuildError: ./node_modules/next/package.json:1:1
+Error parsing package.json file
+package.json is not parseable: invalid JSON: EOF while parsing a value at line 1 column 0
+
+
+[01:00:14.859] Server  ERROR   Error: ENOENT: no such file or directory, open '/Users/kylej.choi/Desktop/Ai works/test1/.next/dev/server/pages/_app/build-manifest.json'
+[01:00:14.865] Server  ERROR   ⨯ ./node_modules/next/package.json:1:1
+Error parsing package.json file
+package.json is not parseable: invalid JSON: EOF while parsing a value at line 1 column 0
+
+
+[01:00:14.888] Server  ERROR   ModuleBuildError: ./node_modules/next/package.json:1:1
+Error parsing package.json file
+package.json is not parseable: invalid JSON: EOF while parsing a value at line 1 column 0
+
+
+[01:00:14.911] Server  ERROR   Error: ENOENT: no such file or directory, open '/Users/kylej.choi/Desktop/Ai works/test1/.next/dev/server/pages/_app/build-manifest.json'
+[01:00:14.915] Server  ERROR   ⨯ ./node_modules/next/package.json:1:1
+Error parsing package.json file
+package.json is not parseable: invalid JSON: EOF while parsing a value at line 1 column 0
+
+
+[01:00:14.938] Server  ERROR   ModuleBuildError: ./node_modules/next/package.json:1:1
+Error parsing package.json file
+package.json is not parseable: invalid JSON: EOF while parsing a value at line 1 column 0
+
+
+[01:00:14.955] Server  ERROR   Error: ENOENT: no such file or directory, open '/Users/kylej.choi/Desktop/Ai works/test1/.next/dev/server/pages/_app/build-manifest.json'
+[01:00:14.960] Server  ERROR   ⨯ ./node_modules/next/package.json:1:1
+Error parsing package.json file
+package.json is not parseable: invalid JSON: EOF while parsing a value at line 1 column 0
+
+
+[01:00:14.986] Server  ERROR   ModuleBuildError: ./node_modules/next/package.json:1:1
+Error parsing package.json file
+package.json is not parseable: invalid JSON: EOF while parsing a value at line 1 column 0
+
+
+[01:00:15.005] Server  ERROR   Error: ENOENT: no such file or directory, open '/Users/kylej.choi/Desktop/Ai works/test1/.next/dev/server/pages/_app/build-manifest.json'
+[01:00:51.978] Server  LOG     ✓ Compiled in 194.7s
