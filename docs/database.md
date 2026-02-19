@@ -1,0 +1,466 @@
+# Database Design
+
+> 기반 문서: `prd.md`, `workflow.md`
+> 유저플로우에 명시적으로 포함된 데이터만 포함한다.
+> DBMS: PostgreSQL (via Supabase)
+
+---
+
+## 1. 데이터 플로우 (Database 관점)
+
+```
+[1. 온보딩]
+  Supabase auth.users (INSERT)
+    → profiles     (INSERT: name, phone, role)
+    → terms_agreements (INSERT: user_id, agreed_at)
+
+[2. 코스 탐색]
+  courses (READ: status = 'published')
+    ← categories  JOIN (카테고리 필터)
+    ← difficulties JOIN (난이도 필터)
+
+[3. 수강신청 / 수강취소]
+  courses     (READ: status 검증)
+  enrollments (READ: 중복 신청 검증)
+    → enrollments (INSERT: course_id, learner_id)          ← 신청
+    → enrollments (UPDATE: cancelled_at = NOW())           ← 취소
+
+[4. Learner 대시보드]
+  enrollments (WHERE cancelled_at IS NULL)
+    → courses     (내 코스 목록)
+    → assignments (마감 임박, ORDER BY due_at ASC)
+    → submissions (최근 피드백, WHERE status = 'graded')
+  COMPUTE 진행률: COUNT(submissions) / COUNT(published assignments per course)
+
+[5. 과제 열람]
+  enrollments (READ: 수강 여부 검증)
+  assignments (READ: status = 'published')
+
+[6. 과제 제출 / 재제출]
+  assignments (READ: due_at, allow_late, allow_resubmit, status 검증)
+    → submissions (INSERT: content_text, content_link, is_late, status = 'submitted')
+    → submissions (UPDATE: content 갱신, status = 'submitted')  ← 재제출
+
+[7. 성적 & 피드백]
+  submissions JOIN assignments (READ: WHERE learner_id = ?)
+  COMPUTE 코스 총점: SUM(score × weight) / SUM(weight) per course
+
+[8. Instructor 대시보드]
+  courses     (READ: WHERE instructor_id = ?)
+  submissions (READ: COUNT WHERE status = 'submitted')           ← 채점 대기 수
+  submissions (READ: ORDER BY submitted_at DESC)                 ← 최근 제출물
+
+[9. 코스 / 과제 관리]
+  courses     (INSERT / UPDATE / status 전환: draft → published → archived)
+  assignments (INSERT / UPDATE / status 전환: draft → published → closed)
+
+[10. 채점]
+  submissions (UPDATE: score, feedback, status = 'graded',            graded_at = NOW())
+  submissions (UPDATE: feedback,          status = 'resubmission_required')
+
+[11. 운영]
+  reports      (INSERT: reporter_id, target_type, target_id, reason, content)
+  reports      (UPDATE: status, action)
+  categories   (INSERT / UPDATE: is_active)
+  difficulties (INSERT / UPDATE: is_active)
+```
+
+---
+
+## 2. ERD (개요)
+
+```
+auth.users (Supabase)
+  └─ profiles (1:1)
+       └─ terms_agreements (1:N)
+       └─ courses [instructor] (1:N)
+            └─ assignments (1:N)
+                 └─ submissions (1:N) ←─ profiles [learner]
+       └─ enrollments (N:M) ── courses
+       └─ reports [reporter] (1:N)
+
+categories  ──< courses
+difficulties ──< courses
+```
+
+---
+
+## 3. 데이터베이스 스키마
+
+### 3.1 ENUM 타입
+
+```sql
+CREATE TYPE user_role AS ENUM ('learner', 'instructor', 'operator');
+
+CREATE TYPE course_status AS ENUM ('draft', 'published', 'archived');
+
+CREATE TYPE assignment_status AS ENUM ('draft', 'published', 'closed');
+
+CREATE TYPE submission_status AS ENUM (
+  'submitted',
+  'graded',
+  'resubmission_required'
+);
+
+CREATE TYPE report_target_type AS ENUM (
+  'course',
+  'assignment',
+  'submission',
+  'user'
+);
+
+CREATE TYPE report_status AS ENUM ('received', 'investigating', 'resolved');
+
+CREATE TYPE report_action AS ENUM (
+  'warning',
+  'invalidate_submission',
+  'restrict_account'
+);
+```
+
+---
+
+### 3.2 테이블
+
+#### `profiles`
+
+Supabase `auth.users` 와 1:1 매핑. 역할 및 최소 프로필 저장.
+
+| 컬럼 | 타입 | 제약 | 설명 |
+|---|---|---|---|
+| id | UUID | PK, FK auth.users | Supabase Auth UID |
+| name | TEXT | NOT NULL | 이름 |
+| phone | TEXT | NOT NULL | 휴대폰번호 |
+| role | user_role | NOT NULL | learner \| instructor \| operator |
+| created_at | TIMESTAMPTZ | NOT NULL DEFAULT NOW() | |
+| updated_at | TIMESTAMPTZ | NOT NULL DEFAULT NOW() | |
+
+```sql
+CREATE TABLE IF NOT EXISTS profiles (
+  id         UUID      PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  name       TEXT      NOT NULL,
+  phone      TEXT      NOT NULL,
+  role       user_role NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+```
+
+---
+
+#### `terms_agreements`
+
+온보딩 시 약관 동의 이력.
+
+| 컬럼 | 타입 | 제약 | 설명 |
+|---|---|---|---|
+| id | UUID | PK | |
+| user_id | UUID | NOT NULL, FK profiles | |
+| agreed_at | TIMESTAMPTZ | NOT NULL DEFAULT NOW() | 동의 시각 |
+
+```sql
+CREATE TABLE IF NOT EXISTS terms_agreements (
+  id       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id  UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  agreed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+```
+
+---
+
+#### `categories`
+
+코스 카테고리 메타데이터. 운영자가 CRUD 관리.
+
+| 컬럼 | 타입 | 제약 | 설명 |
+|---|---|---|---|
+| id | UUID | PK | |
+| name | TEXT | NOT NULL, UNIQUE | 카테고리명 |
+| is_active | BOOLEAN | NOT NULL DEFAULT TRUE | 비활성화 시 신규 코스 선택 불가 |
+| created_at | TIMESTAMPTZ | NOT NULL DEFAULT NOW() | |
+| updated_at | TIMESTAMPTZ | NOT NULL DEFAULT NOW() | |
+
+```sql
+CREATE TABLE IF NOT EXISTS categories (
+  id         UUID    PRIMARY KEY DEFAULT gen_random_uuid(),
+  name       TEXT    NOT NULL UNIQUE,
+  is_active  BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+```
+
+---
+
+#### `difficulties`
+
+코스 난이도 메타데이터. 운영자가 CRUD 관리.
+
+| 컬럼 | 타입 | 제약 | 설명 |
+|---|---|---|---|
+| id | UUID | PK | |
+| name | TEXT | NOT NULL, UNIQUE | 난이도명 (예: 입문, 초급, 중급) |
+| is_active | BOOLEAN | NOT NULL DEFAULT TRUE | 비활성화 시 신규 코스 선택 불가 |
+| created_at | TIMESTAMPTZ | NOT NULL DEFAULT NOW() | |
+| updated_at | TIMESTAMPTZ | NOT NULL DEFAULT NOW() | |
+
+```sql
+CREATE TABLE IF NOT EXISTS difficulties (
+  id         UUID    PRIMARY KEY DEFAULT gen_random_uuid(),
+  name       TEXT    NOT NULL UNIQUE,
+  is_active  BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+```
+
+---
+
+#### `courses`
+
+강사가 개설하는 코스.
+
+| 컬럼 | 타입 | 제약 | 설명 |
+|---|---|---|---|
+| id | UUID | PK | |
+| instructor_id | UUID | NOT NULL, FK profiles | 소유 강사 |
+| title | TEXT | NOT NULL | 코스 제목 |
+| description | TEXT | | 코스 소개 |
+| category_id | UUID | FK categories, NULL 허용 | |
+| difficulty_id | UUID | FK difficulties, NULL 허용 | |
+| curriculum | TEXT | | 커리큘럼 (텍스트) |
+| status | course_status | NOT NULL DEFAULT 'draft' | draft \| published \| archived |
+| created_at | TIMESTAMPTZ | NOT NULL DEFAULT NOW() | |
+| updated_at | TIMESTAMPTZ | NOT NULL DEFAULT NOW() | |
+
+```sql
+CREATE TABLE IF NOT EXISTS courses (
+  id            UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+  instructor_id UUID         NOT NULL REFERENCES profiles(id) ON DELETE RESTRICT,
+  title         TEXT         NOT NULL,
+  description   TEXT,
+  category_id   UUID         REFERENCES categories(id) ON DELETE SET NULL,
+  difficulty_id UUID         REFERENCES difficulties(id) ON DELETE SET NULL,
+  curriculum    TEXT,
+  status        course_status NOT NULL DEFAULT 'draft',
+  created_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+  updated_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_courses_instructor_id ON courses(instructor_id);
+CREATE INDEX IF NOT EXISTS idx_courses_status        ON courses(status);
+CREATE INDEX IF NOT EXISTS idx_courses_category_id   ON courses(category_id);
+```
+
+---
+
+#### `enrollments`
+
+학습자의 코스 수강신청 기록.
+
+| 컬럼 | 타입 | 제약 | 설명 |
+|---|---|---|---|
+| id | UUID | PK | |
+| course_id | UUID | NOT NULL, FK courses | |
+| learner_id | UUID | NOT NULL, FK profiles | |
+| enrolled_at | TIMESTAMPTZ | NOT NULL DEFAULT NOW() | 신청 시각 |
+| cancelled_at | TIMESTAMPTZ | NULL 허용 | 취소 시각, NULL = 활성 수강 |
+
+- `(course_id, learner_id)` UNIQUE → 중복 신청 방지
+- `cancelled_at IS NULL` 조건으로 활성 수강 여부 판별
+
+```sql
+CREATE TABLE IF NOT EXISTS enrollments (
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  course_id    UUID NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+  learner_id   UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  enrolled_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  cancelled_at TIMESTAMPTZ,
+  UNIQUE(course_id, learner_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_enrollments_learner_id ON enrollments(learner_id);
+CREATE INDEX IF NOT EXISTS idx_enrollments_course_id  ON enrollments(course_id);
+```
+
+---
+
+#### `assignments`
+
+코스에 속하는 과제.
+
+| 컬럼 | 타입 | 제약 | 설명 |
+|---|---|---|---|
+| id | UUID | PK | |
+| course_id | UUID | NOT NULL, FK courses | |
+| title | TEXT | NOT NULL | 과제 제목 |
+| description | TEXT | | 과제 설명 및 요구사항 |
+| due_at | TIMESTAMPTZ | NOT NULL | 마감일 |
+| weight | NUMERIC(5,2) | NOT NULL, CHECK > 0 | 점수 비중 |
+| allow_late | BOOLEAN | NOT NULL DEFAULT FALSE | 지각 제출 허용 여부 |
+| allow_resubmit | BOOLEAN | NOT NULL DEFAULT FALSE | 재제출 허용 여부 |
+| status | assignment_status | NOT NULL DEFAULT 'draft' | draft \| published \| closed |
+| created_at | TIMESTAMPTZ | NOT NULL DEFAULT NOW() | |
+| updated_at | TIMESTAMPTZ | NOT NULL DEFAULT NOW() | |
+
+```sql
+CREATE TABLE IF NOT EXISTS assignments (
+  id             UUID              PRIMARY KEY DEFAULT gen_random_uuid(),
+  course_id      UUID              NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+  title          TEXT              NOT NULL,
+  description    TEXT,
+  due_at         TIMESTAMPTZ       NOT NULL,
+  weight         NUMERIC(5,2)      NOT NULL CHECK (weight > 0),
+  allow_late     BOOLEAN           NOT NULL DEFAULT FALSE,
+  allow_resubmit BOOLEAN           NOT NULL DEFAULT FALSE,
+  status         assignment_status NOT NULL DEFAULT 'draft',
+  created_at     TIMESTAMPTZ       NOT NULL DEFAULT NOW(),
+  updated_at     TIMESTAMPTZ       NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_assignments_course_id ON assignments(course_id);
+CREATE INDEX IF NOT EXISTS idx_assignments_status    ON assignments(status);
+CREATE INDEX IF NOT EXISTS idx_assignments_due_at    ON assignments(due_at);
+```
+
+---
+
+#### `submissions`
+
+학습자의 과제 제출물.
+
+| 컬럼 | 타입 | 제약 | 설명 |
+|---|---|---|---|
+| id | UUID | PK | |
+| assignment_id | UUID | NOT NULL, FK assignments | |
+| learner_id | UUID | NOT NULL, FK profiles | |
+| content_text | TEXT | NOT NULL | 제출 텍스트 (필수) |
+| content_link | TEXT | NULL 허용 | 제출 링크 (선택, URL) |
+| is_late | BOOLEAN | NOT NULL DEFAULT FALSE | 지각 제출 여부 |
+| status | submission_status | NOT NULL DEFAULT 'submitted' | submitted \| graded \| resubmission_required |
+| score | INTEGER | NULL 허용, CHECK 0~100 | 채점 점수 |
+| feedback | TEXT | NULL 허용 | 강사 피드백 |
+| submitted_at | TIMESTAMPTZ | NOT NULL DEFAULT NOW() | 최종 제출 시각 |
+| graded_at | TIMESTAMPTZ | NULL 허용 | 채점 시각 |
+| created_at | TIMESTAMPTZ | NOT NULL DEFAULT NOW() | |
+| updated_at | TIMESTAMPTZ | NOT NULL DEFAULT NOW() | |
+
+- `(assignment_id, learner_id)` UNIQUE → 과제당 1건, 재제출은 UPDATE
+- 재제출 시: `content_text`, `content_link`, `is_late`, `status`, `submitted_at` 갱신
+
+```sql
+CREATE TABLE IF NOT EXISTS submissions (
+  id            UUID              PRIMARY KEY DEFAULT gen_random_uuid(),
+  assignment_id UUID              NOT NULL REFERENCES assignments(id) ON DELETE CASCADE,
+  learner_id    UUID              NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  content_text  TEXT              NOT NULL,
+  content_link  TEXT,
+  is_late       BOOLEAN           NOT NULL DEFAULT FALSE,
+  status        submission_status NOT NULL DEFAULT 'submitted',
+  score         INTEGER           CHECK (score >= 0 AND score <= 100),
+  feedback      TEXT,
+  submitted_at  TIMESTAMPTZ       NOT NULL DEFAULT NOW(),
+  graded_at     TIMESTAMPTZ,
+  created_at    TIMESTAMPTZ       NOT NULL DEFAULT NOW(),
+  updated_at    TIMESTAMPTZ       NOT NULL DEFAULT NOW(),
+  UNIQUE(assignment_id, learner_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_submissions_assignment_id ON submissions(assignment_id);
+CREATE INDEX IF NOT EXISTS idx_submissions_learner_id    ON submissions(learner_id);
+CREATE INDEX IF NOT EXISTS idx_submissions_status        ON submissions(status);
+```
+
+---
+
+#### `reports`
+
+운영자 신고 접수 및 처리 이력.
+
+| 컬럼 | 타입 | 제약 | 설명 |
+|---|---|---|---|
+| id | UUID | PK | |
+| reporter_id | UUID | NOT NULL, FK profiles | 신고자 |
+| target_type | report_target_type | NOT NULL | course \| assignment \| submission \| user |
+| target_id | UUID | NOT NULL | 신고 대상 레코드 ID |
+| reason | TEXT | NOT NULL | 신고 사유 |
+| content | TEXT | NOT NULL | 신고 내용 |
+| status | report_status | NOT NULL DEFAULT 'received' | received \| investigating \| resolved |
+| action | report_action | NULL 허용 | 처리 액션 (경고/무효화/계정제한) |
+| created_at | TIMESTAMPTZ | NOT NULL DEFAULT NOW() | |
+| updated_at | TIMESTAMPTZ | NOT NULL DEFAULT NOW() | |
+
+```sql
+CREATE TABLE IF NOT EXISTS reports (
+  id          UUID               PRIMARY KEY DEFAULT gen_random_uuid(),
+  reporter_id UUID               NOT NULL REFERENCES profiles(id) ON DELETE RESTRICT,
+  target_type report_target_type NOT NULL,
+  target_id   UUID               NOT NULL,
+  reason      TEXT               NOT NULL,
+  content     TEXT               NOT NULL,
+  status      report_status      NOT NULL DEFAULT 'received',
+  action      report_action,
+  created_at  TIMESTAMPTZ        NOT NULL DEFAULT NOW(),
+  updated_at  TIMESTAMPTZ        NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_reports_status ON reports(status);
+```
+
+---
+
+## 4. updated_at 자동 갱신 트리거
+
+```sql
+CREATE OR REPLACE FUNCTION set_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_profiles_updated_at
+  BEFORE UPDATE ON profiles
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+CREATE TRIGGER trg_categories_updated_at
+  BEFORE UPDATE ON categories
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+CREATE TRIGGER trg_difficulties_updated_at
+  BEFORE UPDATE ON difficulties
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+CREATE TRIGGER trg_courses_updated_at
+  BEFORE UPDATE ON courses
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+CREATE TRIGGER trg_assignments_updated_at
+  BEFORE UPDATE ON assignments
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+CREATE TRIGGER trg_submissions_updated_at
+  BEFORE UPDATE ON submissions
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+CREATE TRIGGER trg_reports_updated_at
+  BEFORE UPDATE ON reports
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+```
+
+---
+
+## 5. 테이블 요약
+
+| 테이블 | 역할 |
+|---|---|
+| `profiles` | 유저 역할 및 최소 프로필 |
+| `terms_agreements` | 온보딩 약관 동의 이력 |
+| `categories` | 코스 카테고리 메타데이터 (운영자 관리) |
+| `difficulties` | 코스 난이도 메타데이터 (운영자 관리) |
+| `courses` | 강사 개설 코스 |
+| `enrollments` | 학습자 수강신청 기록 |
+| `assignments` | 코스별 과제 |
+| `submissions` | 학습자 제출물 및 채점 결과 |
+| `reports` | 운영자 신고 접수/처리 |
