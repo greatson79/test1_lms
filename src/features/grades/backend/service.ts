@@ -1,4 +1,6 @@
-import type { SupabaseClient } from '@supabase/supabase-js';
+import type { AppSupabaseClient } from '@/backend/supabase/client';
+import type { Tables } from '@/types/database.types';
+
 import { failure, success, type HandlerResult } from '@/backend/http/response';
 import { gradeErrorCodes, type GradeServiceError } from './error';
 import type {
@@ -11,7 +13,7 @@ type AssignmentRow = {
   id: string;
   title: string;
   due_at: string;
-  weight: string; // Supabase NUMERIC -> string
+  weight: number; // Supabase NUMERIC -> string
 };
 
 type SubmissionRow = {
@@ -36,7 +38,7 @@ const mapSubmissionRow = (row: SubmissionRow): SubmissionGradeInfo => ({
 });
 
 const verifyEnrollmentForGrades = async (
-  supabase: SupabaseClient,
+  supabase: AppSupabaseClient,
   courseId: string,
   learnerId: string,
 ): Promise<HandlerResult<null, GradeServiceError>> => {
@@ -82,7 +84,7 @@ const calculateCurrentGrade = (
 };
 
 export const getGrades = async (
-  supabase: SupabaseClient,
+  supabase: AppSupabaseClient,
   courseId: string,
   learnerId: string,
 ): Promise<HandlerResult<GradesResponse, GradeServiceError>> => {
@@ -100,7 +102,7 @@ export const getGrades = async (
     return failure(500, gradeErrorCodes.fetchError, assignmentsError.message);
   }
 
-  const assignments = (assignmentsRaw ?? []) as unknown as AssignmentRow[];
+  const assignments = (assignmentsRaw ?? []) as AssignmentRow[];
   const assignmentIds = assignments.map((a) => a.id);
 
   let submissions: SubmissionRow[] = [];
@@ -115,7 +117,7 @@ export const getGrades = async (
       return failure(500, gradeErrorCodes.fetchError, submissionsError.message);
     }
 
-    submissions = (submissionsRaw ?? []) as unknown as SubmissionRow[];
+    submissions = (submissionsRaw ?? []) as SubmissionRow[];
   }
 
   const submissionMap = new Map(submissions.map((s) => [s.assignment_id, s]));
@@ -128,7 +130,7 @@ export const getGrades = async (
       id: a.id,
       title: a.title,
       dueAt: a.due_at,
-      weight: Number(a.weight),
+      weight: a.weight,
       mySubmission: sub ? mapSubmissionRow(sub) : null,
     };
   });

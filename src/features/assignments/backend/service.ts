@@ -40,7 +40,7 @@ const mapAssignmentRow = (
   title: row.title,
   description: row.description,
   dueAt: row.due_at,
-  weight: Number(row.weight),
+  weight: row.weight,
   allowLate: row.allow_late,
   allowResubmit: row.allow_resubmit,
   status: row.status as AssignmentDto['status'],

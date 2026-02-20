@@ -1,4 +1,6 @@
-import type { SupabaseClient } from '@supabase/supabase-js';
+import type { AppSupabaseClient } from '@/backend/supabase/client';
+import type { Tables } from '@/types/database.types';
+
 import { failure, success, type HandlerResult } from '@/backend/http/response';
 import { dashboardErrorCodes, type DashboardServiceError } from './error';
 import type {
@@ -27,7 +29,7 @@ type AssignmentRow = {
   course_id: string;
   title: string;
   due_at: string;
-  weight: string;
+  weight: number;
 };
 
 type SubmissionProgressRow = {
@@ -71,7 +73,7 @@ export const calculateProgress = (
 };
 
 export const getLearnerDashboard = async (
-  supabase: SupabaseClient,
+  supabase: AppSupabaseClient,
   learnerId: string,
 ): Promise<HandlerResult<LearnerDashboardResponse, DashboardServiceError>> => {
   const { data: enrollmentRows, error: enrollmentError } = await supabase
@@ -116,7 +118,7 @@ export const getLearnerDashboard = async (
     return failure(500, dashboardErrorCodes.fetchError, assignmentsError.message);
   }
 
-  const assignments = (assignmentsRaw ?? []) as unknown as AssignmentRow[];
+  const assignments = (assignmentsRaw ?? []) as AssignmentRow[];
   const assignmentIds = assignments.map((a) => a.id);
 
   let progressSubmissions: SubmissionProgressRow[] = [];
@@ -132,10 +134,10 @@ export const getLearnerDashboard = async (
       return failure(500, dashboardErrorCodes.fetchError, submissionsError.message);
     }
 
-    progressSubmissions = (submissionsRaw ?? []) as unknown as SubmissionProgressRow[];
+    progressSubmissions = (submissionsRaw ?? []) as SubmissionProgressRow[];
   }
 
-  const courseRows = (coursesRaw ?? []) as unknown as CourseRow[];
+  const courseRows = (coursesRaw ?? []) as CourseRow[];
   const courseMap = new Map(courseRows.map((c) => [c.id, c]));
   const submissionByAssignment = new Map(progressSubmissions.map((s) => [s.assignment_id, s]));
 
@@ -172,7 +174,7 @@ export const getLearnerDashboard = async (
         courseTitle: course?.title ?? '알 수 없음',
         title: a.title,
         dueAt: a.due_at,
-        weight: Number(a.weight),
+        weight: a.weight,
         isSubmitted: submissionByAssignment.has(a.id),
       };
     });
@@ -196,7 +198,7 @@ export const getLearnerDashboard = async (
   }
 
   const recentFeedbacks: RecentFeedback[] = (
-    (feedbacksRaw ?? []) as unknown as FeedbackRow[]
+    (feedbacksRaw ?? []) as FeedbackRow[]
   ).map((f) => ({
     submissionId: f.id,
     assignmentId: f.assignment_id,
@@ -216,7 +218,7 @@ export const getLearnerDashboard = async (
 type GradeAssignmentRow = {
   id: string;
   title: string;
-  weight: string;
+  weight: number;
   due_at: string;
 };
 
@@ -239,7 +241,7 @@ const toSubmissionStatus = (raw: string): AssignmentGrade['submissionStatus'] =>
 };
 
 export const getCourseGrades = async (
-  supabase: SupabaseClient,
+  supabase: AppSupabaseClient,
   learnerId: string,
   courseId: string,
 ): Promise<HandlerResult<CourseGradesResponse, DashboardServiceError>> => {
@@ -283,7 +285,7 @@ export const getCourseGrades = async (
     return failure(500, dashboardErrorCodes.fetchError, assignmentsError.message);
   }
 
-  const gradeAssignments = (assignmentsRaw ?? []) as unknown as GradeAssignmentRow[];
+  const gradeAssignments = (assignmentsRaw ?? []) as GradeAssignmentRow[];
 
   if (gradeAssignments.length === 0) {
     return success({
@@ -310,7 +312,7 @@ export const getCourseGrades = async (
   }
 
   const submissionMap = new Map(
-    ((submissionsRaw ?? []) as unknown as GradeSubmissionRow[]).map((s) => [
+    ((submissionsRaw ?? []) as GradeSubmissionRow[]).map((s) => [
       s.assignment_id,
       s,
     ]),
@@ -322,7 +324,7 @@ export const getCourseGrades = async (
   let totalWeightSum = 0;
 
   const assignments: AssignmentGrade[] = gradeAssignments.map((a) => {
-    const weight = Number(a.weight);
+    const weight = a.weight;
     totalWeightSum += weight;
 
     const submission = submissionMap.get(a.id);
