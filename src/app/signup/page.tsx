@@ -100,10 +100,13 @@ export default function SignupPage({ params }: SignupPageProps) {
         });
 
       if (signUpError) {
-        const isConflict = signUpError.message.toLowerCase().includes("already");
+        const msg = signUpError.message.toLowerCase();
+        const isConflict =
+          msg.includes("already") ||
+          msg.includes("database error saving new user");
         setError("root", {
           message: isConflict
-            ? "이미 사용 중인 이메일입니다."
+            ? "이미 사용 중인 이메일입니다. 다른 이메일을 사용해주세요."
             : signUpError.message,
         });
         return;
@@ -112,7 +115,7 @@ export default function SignupPage({ params }: SignupPageProps) {
       if (!signUpData.session) {
         setError("root", {
           message:
-            "이메일 인증이 필요합니다. 받은 편지함을 확인해주세요.",
+            "이메일 인증이 필요합니다. Supabase 대시보드에서 이메일 인증을 비활성화하거나, 받은 편지함을 확인해주세요.",
         });
         return;
       }
