@@ -2,14 +2,18 @@
 
 import { use } from 'react';
 import Link from 'next/link';
-import { Pencil, ArrowLeft, RefreshCw } from 'lucide-react';
+import { Pencil, ArrowLeft, RefreshCw, Plus, BookOpen } from 'lucide-react';
 import { match } from 'ts-pattern';
+import { format } from 'date-fns';
+import { ko } from 'date-fns/locale';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useRoleGuard } from '@/hooks/useRoleGuard';
 import { useInstructorCourseQuery } from '@/features/instructor-courses/hooks/useInstructorCourseQuery';
 import { useUpdateCourseStatusMutation } from '@/features/instructor-courses/hooks/useUpdateCourseStatusMutation';
 import { CourseStatusButton } from '@/features/instructor-courses/components/course-status-button';
+import { useInstructorCourseAssignmentsQuery } from '@/features/instructor-assignments/hooks/useInstructorCourseAssignmentsQuery';
+import type { InstructorAssignmentDto } from '@/features/instructor-assignments/lib/dto';
 
 type InstructorCourseDetailPageProps = {
   params: Promise<{ courseId: string }>;
@@ -39,11 +43,33 @@ const StatusBadge = ({ status }: StatusBadgeProps) => {
   return <Badge variant={variant}>{label}</Badge>;
 };
 
+const AssignmentStatusBadge = ({ status }: { status: InstructorAssignmentDto['status'] }) => {
+  const { label, variant } = match(status)
+    .with('draft', () => ({ label: '초안', variant: 'secondary' as const }))
+    .with('published', () => ({ label: '게시됨', variant: 'default' as const }))
+    .with('closed', () => ({ label: '마감됨', variant: 'outline' as const }))
+    .exhaustive();
+
+  return <Badge variant={variant}>{label}</Badge>;
+};
+
+const AssignmentSkeleton = () => (
+  <div className="flex flex-col gap-3">
+    {[1, 2, 3].map((i) => (
+      <div key={i} className="h-16 w-full animate-pulse rounded-lg bg-slate-100" />
+    ))}
+  </div>
+);
+
 export default function InstructorCourseDetailPage({ params }: InstructorCourseDetailPageProps) {
   const { courseId } = use(params);
   const { isAllowed, isLoading: isRoleLoading } = useRoleGuard('instructor');
   const { data, isLoading, isError, error, refetch } = useInstructorCourseQuery(courseId);
   const { mutate: changeStatus, isPending } = useUpdateCourseStatusMutation(courseId);
+  const {
+    data: assignmentsData,
+    isLoading: isAssignmentsLoading,
+  } = useInstructorCourseAssignmentsQuery(courseId);
 
   if (isRoleLoading || !isAllowed) return null;
 
@@ -139,6 +165,48 @@ export default function InstructorCourseDetailPage({ params }: InstructorCourseD
               )}
             </section>
           </div>
+
+          <section className="flex flex-col gap-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-slate-900">과제 목록</h3>
+              <Button asChild size="sm">
+                <Link href={`/instructor/courses/${courseId}/assignments/new`}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  과제 추가
+                </Link>
+              </Button>
+            </div>
+
+            {isAssignmentsLoading ? (
+              <AssignmentSkeleton />
+            ) : (assignmentsData?.assignments ?? []).length === 0 ? (
+              <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-slate-300 py-12 text-center">
+                <BookOpen className="mb-3 h-8 w-8 text-slate-300" />
+                <p className="font-medium text-slate-500">등록된 과제가 없습니다.</p>
+                <p className="mt-1 text-sm text-slate-400">위 버튼을 눌러 과제를 추가해보세요.</p>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-3">
+                {(assignmentsData?.assignments ?? []).map((assignment) => (
+                  <Link
+                    key={assignment.id}
+                    href={`/instructor/assignments/${assignment.id}`}
+                    className="flex items-center justify-between rounded-lg border border-slate-200 bg-white p-4 hover:border-slate-300 hover:bg-slate-50 transition-colors"
+                  >
+                    <div className="flex flex-col gap-1">
+                      <p className="font-medium text-slate-900">{assignment.title}</p>
+                      <p className="text-xs text-slate-500">
+                        마감: {format(new Date(assignment.dueAt), 'yyyy.MM.dd HH:mm', { locale: ko })}
+                        {' · '}
+                        비중 {assignment.weight}%
+                      </p>
+                    </div>
+                    <AssignmentStatusBadge status={assignment.status} />
+                  </Link>
+                ))}
+              </div>
+            )}
+          </section>
         </div>
       ) : null}
     </div>
