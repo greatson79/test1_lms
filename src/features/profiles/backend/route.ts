@@ -1,11 +1,10 @@
 import type { Hono } from 'hono';
-import { failure, respond, type ErrorResult } from '@/backend/http/response';
-import { getCurrentUser, getLogger, getSupabase, type AppEnv } from '@/backend/hono/context';
+import { failure, respond, handleServiceResult } from '@/backend/http/response';
+import { getCurrentUser, getSupabase, type AppEnv } from '@/backend/hono/context';
 import { withAuth } from '@/backend/middleware/auth';
 import { profileErrorCodes } from './error';
 import { OnboardingRequestSchema, SignupRequestSchema } from './schema';
 import { onboardUser, signupUser } from './service';
-import type { ProfileServiceError } from './error';
 
 export const registerProfileRoutes = (app: Hono<AppEnv>) => {
   app.post('/api/auth/signup', async (c) => {
@@ -20,15 +19,8 @@ export const registerProfileRoutes = (app: Hono<AppEnv>) => {
     }
 
     const supabase = getSupabase(c);
-    const logger = getLogger(c);
-
     const result = await signupUser(supabase, parsed.data);
-
-    if (!result.ok) {
-      logger.error('Signup failed', (result as ErrorResult<ProfileServiceError>).error.message);
-    }
-
-    return respond(c, result);
+    return handleServiceResult(c, result, 'Signup failed');
   });
 
   app.post('/api/auth/onboarding', withAuth(), async (c) => {
@@ -49,14 +41,7 @@ export const registerProfileRoutes = (app: Hono<AppEnv>) => {
     }
 
     const supabase = getSupabase(c);
-    const logger = getLogger(c);
-
     const result = await onboardUser(supabase, currentUser.id, parsed.data);
-
-    if (!result.ok) {
-      logger.error('Onboarding failed', (result as ErrorResult<ProfileServiceError>).error.message);
-    }
-
-    return respond(c, result);
+    return handleServiceResult(c, result, 'Onboarding failed');
   });
 };

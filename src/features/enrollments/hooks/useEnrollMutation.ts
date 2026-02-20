@@ -2,23 +2,18 @@
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient, extractApiErrorMessage } from '@/lib/remote/api-client';
-import { getSupabaseBrowserClient } from '@/lib/supabase/browser-client';
+import { getAuthHeadersOrThrow } from '@/lib/remote/auth-headers';
 import { EnrollResponseSchema } from '@/features/enrollments/lib/dto';
 import type { EnrollResponse } from '@/features/enrollments/lib/dto';
 
 const enroll = async (courseId: string): Promise<EnrollResponse> => {
-  const supabase = getSupabaseBrowserClient();
-  const { data: { session } } = await supabase.auth.getSession();
-
-  if (!session?.access_token) {
-    throw new Error('인증이 필요합니다.');
-  }
+  const headers = await getAuthHeadersOrThrow();
 
   try {
     const { data } = await apiClient.post(
       '/api/enrollments',
       { courseId },
-      { headers: { Authorization: `Bearer ${session.access_token}` } },
+      { headers },
     );
     return EnrollResponseSchema.parse(data);
   } catch (error) {

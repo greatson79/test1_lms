@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import Image from 'next/image';
+import { BarChart2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import type { EnrolledCourse } from '@/features/dashboard/lib/dto';
@@ -35,53 +36,66 @@ export const EnrolledCourseCard = ({ course }: EnrolledCourseCardProps) => {
   const thumbnailUrl = `https://picsum.photos/seed/${course.id}/${THUMBNAIL_WIDTH}/${THUMBNAIL_HEIGHT}`;
 
   return (
-    <Link
-      href={`/courses/${course.id}`}
-      className="block rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-    >
-      <Card className="h-full overflow-hidden transition-shadow hover:shadow-md">
-        <div className="relative aspect-video w-full overflow-hidden bg-slate-100">
-          <Image
-            src={thumbnailUrl}
-            alt={course.title}
-            fill
-            className="object-cover"
-            sizes="(max-width: 768px) 100vw, 50vw"
-          />
-        </div>
-
-        <CardContent className="flex flex-col gap-3 p-4">
-          <div className="flex flex-wrap gap-1.5">
-            {course.category && (
-              <Badge variant="secondary" className="text-xs">
-                {course.category.name}
-              </Badge>
-            )}
-            {course.difficulty && (
-              <Badge variant="outline" className="text-xs">
-                {course.difficulty.name}
-              </Badge>
-            )}
+    <div className="flex flex-col rounded-lg overflow-hidden border border-slate-200 transition-shadow hover:shadow-md">
+      <Link
+        href={`/courses/${course.id}`}
+        className="block focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <Card className="overflow-hidden rounded-none border-0 shadow-none">
+          <div className="relative aspect-video w-full overflow-hidden bg-slate-100">
+            <Image
+              src={thumbnailUrl}
+              alt={course.title}
+              fill
+              className="object-cover"
+              sizes="(max-width: 768px) 100vw, 50vw"
+            />
           </div>
 
-          <h3 className="line-clamp-2 text-sm font-semibold leading-snug text-slate-900">
-            {course.title}
-          </h3>
-
-          <div className="flex flex-col gap-1.5">
-            <div className="flex items-center justify-between text-xs text-slate-500">
-              <span>진행률</span>
-              <span className="font-medium text-slate-700">
-                {progressPercent === 100 ? '완료' : `${progressPercent}%`}
-              </span>
+          <CardContent className="flex flex-col gap-3 p-4 pb-2">
+            <div className="flex flex-wrap gap-1.5">
+              {course.category && (
+                <Badge variant="secondary" className="text-xs">
+                  {course.category.name}
+                </Badge>
+              )}
+              {course.difficulty && (
+                <Badge variant="outline" className="text-xs">
+                  {course.difficulty.name}
+                </Badge>
+              )}
             </div>
-            <ProgressBar value={progressPercent} />
-            <p className="text-xs text-slate-400">
-              {course.completedCount} / {course.totalCount}개 과제 완료
-            </p>
-          </div>
-        </CardContent>
-      </Card>
-    </Link>
+
+            <h3 className="line-clamp-2 text-sm font-semibold leading-snug text-slate-900">
+              {course.title}
+            </h3>
+
+            <div className="flex flex-col gap-1.5">
+              <div className="flex items-center justify-between text-xs text-slate-500">
+                <span>진행률</span>
+                <span className="font-medium text-slate-700">
+                  {progressPercent === 100 ? '완료' : `${progressPercent}%`}
+                </span>
+              </div>
+              <ProgressBar value={progressPercent} />
+              <p className="text-xs text-slate-400">
+                {course.completedCount} / {course.totalCount}개 과제 완료
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      </Link>
+
+      <div className="px-4 pb-3">
+        <Link
+          href={`/courses/my/${course.id}/grades`}
+          className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-800"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <BarChart2 className="h-3.5 w-3.5" />
+          성적 보기
+        </Link>
+      </div>
+    </div>
   );
 };

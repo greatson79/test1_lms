@@ -1,7 +1,7 @@
 import type { Hono } from 'hono';
-import { failure, respond, type ErrorResult } from '@/backend/http/response';
-import { getCurrentUser, getSupabase, getLogger, type AppEnv } from '@/backend/hono/context';
-import type { EnrollmentServiceError } from './error';
+import { failure, respond, handleServiceResult } from '@/backend/http/response';
+import { getCurrentUser, getSupabase, type AppEnv } from '@/backend/hono/context';
+import { UUID_REGEX } from '@/constants/validation';
 import { withAuth } from '@/backend/middleware/auth';
 import { enrollmentErrorCodes } from './error';
 import { EnrollRequestSchema } from './schema';
@@ -30,15 +30,8 @@ export const registerEnrollmentRoutes = (app: Hono<AppEnv>) => {
     }
 
     const supabase = getSupabase(c);
-    const logger = getLogger(c);
-
     const result = await enrollCourse(supabase, currentUser.id, parsed.data);
-
-    if (!result.ok) {
-      logger.error('Enrollment failed', (result as ErrorResult<EnrollmentServiceError>).error.message);
-    }
-
-    return respond(c, result);
+    return handleServiceResult(c, result, 'Enrollment failed');
   });
 
   app.delete('/api/enrollments/:courseId', withAuth(), async (c) => {
@@ -54,20 +47,12 @@ export const registerEnrollmentRoutes = (app: Hono<AppEnv>) => {
 
     const courseId = c.req.param('courseId');
 
-    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    if (!uuidRegex.test(courseId)) {
+    if (!UUID_REGEX.test(courseId)) {
       return respond(c, failure(400, enrollmentErrorCodes.notFound, '올바르지 않은 코스 ID입니다.'));
     }
 
     const supabase = getSupabase(c);
-    const logger = getLogger(c);
-
     const result = await cancelEnrollment(supabase, currentUser.id, courseId);
-
-    if (!result.ok) {
-      logger.error('Enrollment cancellation failed', (result as ErrorResult<EnrollmentServiceError>).error.message);
-    }
-
-    return respond(c, result);
+    return handleServiceResult(c, result, 'Enrollment cancellation failed');
   });
 };

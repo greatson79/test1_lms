@@ -1,0 +1,3860 @@
+This file is a merged representation of the entire codebase, combined into a single document by Repomix.
+
+<file_summary>
+This section contains a summary of this file.
+
+<purpose>
+This file contains a packed representation of the entire repository's contents.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+</purpose>
+
+<file_format>
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files (if enabled)
+5. Multiple file entries, each consisting of:
+  - File path as an attribute
+  - Full contents of the file
+</file_format>
+
+<usage_guidelines>
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+</usage_guidelines>
+
+<notes>
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Files are sorted by Git change count (files with more changes are at the bottom)
+</notes>
+
+</file_summary>
+
+<directory_structure>
+001/
+  plan.md
+  spec.md
+002/
+  plan.md
+  spec.md
+003/
+  plan.md
+  spec.md
+004/
+  spec.md
+005/
+  spec.md
+006/
+  spec.md
+007/
+  spec.md
+008/
+  spec.md
+009/
+  spec.md
+010/
+  spec.md
+011/
+  spec.md
+012/
+  spec.md
+database.md
+plan.md
+prd.md
+workflow.md
+</directory_structure>
+
+<files>
+This section contains the contents of the repository's files.
+
+<file path="001/plan.md">
+# Plan: UC-001 — 역할 선택 & 온보딩
+
+## 개요
+
+백엔드 레이어(`profiles` feature)는 이미 구현되어 있으며, 프론트엔드 페이지 연결이 남은 작업이다.
+
+| 모듈 | 위치 | 설명 | 상태 |
+|---|---|---|---|
+| error | `src/features/profiles/backend/error.ts` | 에러 코드 상수 및 union 타입 | ✅ |
+| schema | `src/features/profiles/backend/schema.ts` | SignupRequest / OnboardingRequest / OnboardingResponse zod 스키마 | ✅ |
+| service | `src/features/profiles/backend/service.ts` | `signupUser`, `onboardUser` 비즈니스 로직 | ✅ |
+| route | `src/features/profiles/backend/route.ts` | `POST /api/auth/signup`, `POST /api/auth/onboarding` (withAuth) | ✅ |
+| dto | `src/features/profiles/lib/dto.ts` | backend schema 타입 재노출 | ✅ |
+| useSignupMutation | `src/features/profiles/hooks/useSignupMutation.ts` | 회원가입 mutation 훅 | ✅ |
+| useOnboardingMutation | `src/features/profiles/hooks/useOnboardingMutation.ts` | 온보딩 mutation 훅 (Bearer 토큰 주입) | ✅ |
+| onboarding-form | `src/features/profiles/components/onboarding-form.tsx` | 역할 선택 + 프로필 입력 폼 컴포넌트 | ✅ |
+| signup page | `src/app/signup/page.tsx` | 이메일·비밀번호 입력 폼 페이지 | 🔧 수정 중 |
+| onboarding page | `src/app/onboarding/page.tsx` | 온보딩 폼 렌더링 + 역할별 리다이렉트 처리 | 🆕 신규 |
+
+## Diagram
+
+```mermaid
+graph LR
+  subgraph Pages
+    SP[signup/page.tsx]
+    OP[onboarding/page.tsx]
+  end
+
+  subgraph profiles feature
+    OF[onboarding-form.tsx]
+    SM[useSignupMutation]
+    OM[useOnboardingMutation]
+    DT[lib/dto.ts]
+
+    subgraph backend
+      RT[route.ts]
+      SV[service.ts]
+      SC[schema.ts]
+      ER[error.ts]
+    end
+  end
+
+  subgraph shared
+    AC[apiClient]
+    WA[withAuth middleware]
+    AUTH[constants/auth.ts]
+  end
+
+  SP --> SM
+  OP --> OF
+  OF --> OM
+  SM --> AC
+  OM --> AC
+  AC --> RT
+  RT --> WA
+  RT --> SC
+  RT --> SV
+  SV --> ER
+  DT --> SC
+  SV --> AUTH
+  SV --> DB[(Supabase\nauth.users / profiles / terms_agreements)]
+```
+
+## Implementation Plan
+
+### service.ts — `signupUser` / `onboardUser`
+
+비즈니스 로직의 핵심. Supabase service-role 클라이언트를 인자로 받아 `success / failure`를 반환한다.
+
+**Unit Test**
+
+```typescript
+describe('signupUser', () => {
+  it('신규 이메일로 가입 시 201과 userId를 반환한다')
+  it('이미 존재하는 이메일 → 409 EMAIL_ALREADY_EXISTS')
+  it('Supabase Auth 오류 발생 → 500 SIGNUP_FAILED')
+})
+
+describe('onboardUser', () => {
+  it('learner 역할 온보딩 → profiles + terms_agreements 생성, redirectTo = /courses')
+  it('instructor 역할 온보딩 → redirectTo = /instructor/dashboard')
+  it('프로필 중복(23505) → 409 PROFILE_ALREADY_EXISTS')
+  it('profiles INSERT 실패 → auth 계정 삭제 후 500 ONBOARDING_FAILED')
+  it('terms_agreements INSERT 실패 → profiles + auth 계정 삭제 후 500 ONBOARDING_FAILED')
+})
+```
+
+---
+
+### signup/page.tsx
+
+`useSignupMutation`을 호출하고, 성공 시 `userId`를 세션에 임시 보관하여 `/onboarding`으로 이동한다.
+`react-hook-form` + `zod` resolver로 클라이언트 유효성 검사.
+
+**QA Sheet**
+
+| 시나리오 | 기대 결과 |
+|---|---|
+| 유효한 이메일·비밀번호(8자↑) 입력 후 제출 | `/onboarding`으로 이동 |
+| 이미 가입된 이메일 입력 후 제출 | 이메일 필드에 "이미 사용 중인 이메일입니다" 인라인 오류 |
+| 비밀번호 8자 미만 입력 | 비밀번호 필드에 유효성 오류, 제출 버튼 비활성화 |
+| 이메일 형식 오류 | 이메일 필드에 유효성 오류 |
+| 네트워크 오류 | 토스트 오류 메시지 + 재시도 유도 |
+| 제출 중 버튼 상태 | 로딩 스피너 표시, 중복 제출 방지 |
+
+---
+
+### onboarding/page.tsx + onboarding-form.tsx
+
+`useOnboardingMutation`을 호출하며 `Authorization: Bearer <token>` 헤더를 주입한다.
+성공 응답의 `redirectTo`를 `router.push()`로 처리한다.
+
+**QA Sheet**
+
+| 시나리오 | 기대 결과 |
+|---|---|
+| Learner 선택 + 유효 정보 입력 후 제출 | `/courses`로 이동 |
+| Instructor 선택 + 유효 정보 입력 후 제출 | `/instructor/dashboard`로 이동 |
+| 약관 미동의 상태 | 제출 버튼 비활성화 |
+| 이름 미입력 | 이름 필드에 인라인 오류 |
+| 휴대폰번호 미입력 | 휴대폰번호 필드에 인라인 오류 |
+| 역할 미선택 상태 제출 시도 | 역할 선택 필드에 오류 표시 |
+| 토큰 만료 후 온보딩 제출 | 401 반환 → `/login`으로 리다이렉트 |
+</file>
+
+<file path="001/spec.md">
+# UC-001: 역할 선택 & 온보딩
+
+## Primary Actor
+
+신규 사용자 (Learner 또는 Instructor 지망)
+
+---
+
+## Precondition
+
+- 서비스에 계정이 없는 상태
+- 유효한 이메일 주소를 보유하고 있음
+
+---
+
+## Trigger
+
+사용자가 `/auth/signup` 페이지에 접근하여 회원가입 폼을 제출한다.
+
+---
+
+## Main Scenario
+
+1. 사용자가 이메일 · 비밀번호를 입력하고 가입을 요청한다.
+2. FE가 `POST /api/auth/signup`을 호출한다.
+3. BE가 Supabase Auth 계정을 생성하고 `user_id`를 반환한다.
+4. FE가 온보딩 화면(역할 선택)을 표시한다.
+5. 사용자가 역할(Learner / Instructor)을 선택하고 이름 · 휴대폰번호 · 약관동의를 입력한다.
+6. FE가 `POST /api/auth/onboarding`을 호출한다.
+7. BE가 `profiles` 레코드와 `terms_agreements` 레코드를 생성하고 토큰을 발급한다.
+8. 역할에 따라 리다이렉트한다.
+   - Learner → `/courses` (코스 카탈로그)
+   - Instructor → `/instructor/dashboard`
+
+---
+
+## Edge Cases
+
+| 상황 | 처리 |
+|---|---|
+| 이미 가입된 이메일 | 409 중복 오류 반환 → FE에서 안내 메시지 표시 |
+| 비밀번호 정책 불일치 | 400 유효성 오류 반환 → 입력 필드 인라인 오류 표시 |
+| 약관 미동의 | 프론트엔드 제출 차단 (버튼 비활성화) |
+| 필수 프로필 누락 (이름 · 휴대폰번호) | 400 유효성 오류 반환 → 필드별 인라인 오류 표시 |
+| Supabase Auth 생성 성공 후 `profiles` INSERT 실패 | 500 반환, 생성된 Auth 계정 삭제 처리 (롤백) |
+| 네트워크 오류 | FE에서 재시도 유도 메시지 표시 |
+
+---
+
+## Business Rules
+
+- 역할은 `learner` · `instructor` 중 하나만 선택 가능하며, 이후 변경 불가.
+- 이름 · 휴대폰번호 · 약관동의는 필수 항목이다.
+- 약관 동의 이력은 `terms_agreements` 테이블에 별도 저장한다.
+- 가입 완료 후 역할에 따라 첫 진입 화면이 다르다.
+- 인증은 Supabase Auth 기반으로 처리하며, 서버 측 service-role 클라이언트를 사용한다.
+
+---
+
+## Sequence Diagram
+
+```plantuml
+@startuml
+
+actor User
+participant FE
+participant BE
+database Database
+
+User -> FE: /auth/signup 접근
+User -> FE: 이메일 · 비밀번호 입력 후 제출
+FE -> BE: POST /api/auth/signup\n{email, password}
+BE -> Database: Supabase Auth 계정 생성
+Database --> BE: user_id 반환
+BE --> FE: 201 {userId}
+FE -> User: 온보딩 화면 표시 (역할 선택)
+
+User -> FE: 역할 선택 + 이름 · 휴대폰번호 · 약관동의 입력
+FE -> BE: POST /api/auth/onboarding\n{role, name, phone, termsAgreed}
+BE -> Database: INSERT profiles\n(user_id, role, name, phone)
+BE -> Database: INSERT terms_agreements\n(user_id, agreed_at)
+Database --> BE: 저장 완료
+BE --> FE: 200 {role, redirectTo}
+
+alt role = learner
+  FE -> User: 코스 카탈로그로 이동 (/courses)
+else role = instructor
+  FE -> User: Instructor 대시보드로 이동 (/instructor/dashboard)
+end
+
+@enduml
+```
+</file>
+
+<file path="002/plan.md">
+# Plan: UC-002 — 코스 탐색 & 수강신청/취소
+
+## 개요
+
+`courses`와 `enrollments` 두 feature로 분리한다.
+`courses`는 공개 카탈로그 조회, `enrollments`는 인증된 Learner의 신청·취소 로직을 담당한다.
+
+| 모듈 | 위치 | 설명 | 상태 |
+|---|---|---|---|
+| courses/error | `src/features/courses/backend/error.ts` | COURSE_NOT_FOUND, COURSE_NOT_PUBLISHED | 🆕 |
+| courses/schema | `src/features/courses/backend/schema.ts` | CourseListQuery, CourseListResponse, CourseDetailResponse | 🆕 |
+| courses/service | `src/features/courses/backend/service.ts` | `listCourses`, `getCourseDetail` (수강 상태 포함) | 🆕 |
+| courses/route | `src/features/courses/backend/route.ts` | `GET /api/courses`, `GET /api/courses/:courseId` | 🆕 |
+| courses/dto | `src/features/courses/lib/dto.ts` | CourseDto, CourseDetailDto 타입 재노출 (UC-003과 공유) | 🆕 |
+| useCourseListQuery | `src/features/courses/hooks/useCourseListQuery.ts` | 코스 목록 조회 쿼리 훅 | 🆕 |
+| useCourseDetailQuery | `src/features/courses/hooks/useCourseDetailQuery.ts` | 코스 상세 + 수강 상태 조회 훅 | 🆕 |
+| course-card | `src/features/courses/components/course-card.tsx` | 카탈로그 카드 컴포넌트 | 🆕 |
+| course-filter | `src/features/courses/components/course-filter.tsx` | 검색어·카테고리·난이도·정렬 필터바 | 🆕 |
+| enrollments/error | `src/features/enrollments/backend/error.ts` | ALREADY_ENROLLED, ENROLLMENT_NOT_FOUND, COURSE_NOT_ENROLLABLE | 🆕 |
+| enrollments/schema | `src/features/enrollments/backend/schema.ts` | EnrollRequest, EnrollResponse, CancelEnrollmentParams | 🆕 |
+| enrollments/service | `src/features/enrollments/backend/service.ts` | `enrollCourse` (UPSERT), `cancelEnrollment` | 🆕 |
+| enrollments/route | `src/features/enrollments/backend/route.ts` | `POST /api/enrollments`, `DELETE /api/enrollments/:courseId` (withAuth) | 🆕 |
+| enrollments/dto | `src/features/enrollments/lib/dto.ts` | EnrollmentDto 타입 재노출 | 🆕 |
+| useEnrollMutation | `src/features/enrollments/hooks/useEnrollMutation.ts` | 수강신청·재신청 mutation 훅 | 🆕 |
+| useCancelEnrollmentMutation | `src/features/enrollments/hooks/useCancelEnrollmentMutation.ts` | 수강취소 mutation 훅 | 🆕 |
+| enrollment-button | `src/features/enrollments/components/enrollment-button.tsx` | 수강신청·취소 토글 버튼 컴포넌트 | 🆕 |
+| courses page | `src/app/courses/page.tsx` | 코스 카탈로그 페이지 | 🆕 |
+| course detail page | `src/app/courses/[courseId]/page.tsx` | 코스 상세 페이지 | 🆕 |
+| app.ts 등록 | `src/backend/hono/app.ts` | `registerCourseRoutes`, `registerEnrollmentRoutes` 추가 | 🔧 |
+
+## Diagram
+
+```mermaid
+graph LR
+  subgraph Pages
+    CP[courses/page.tsx]
+    DP[courses/courseId/page.tsx]
+  end
+
+  subgraph courses feature
+    CC[course-card.tsx]
+    CF[course-filter.tsx]
+    CLQ[useCourseListQuery]
+    CDQ[useCourseDetailQuery]
+    CDTO[lib/dto.ts]
+
+    subgraph courses backend
+      CR[route.ts]
+      CS[service.ts]
+    end
+  end
+
+  subgraph enrollments feature
+    EB[enrollment-button.tsx]
+    EM[useEnrollMutation]
+    ECM[useCancelEnrollmentMutation]
+    EDTO[lib/dto.ts]
+
+    subgraph enrollments backend
+      ER[route.ts]
+      ES[service.ts]
+    end
+  end
+
+  subgraph shared
+    AC[apiClient]
+    WA[withAuth middleware]
+  end
+
+  CP --> CF
+  CP --> CC
+  CP --> CLQ
+  DP --> CDQ
+  DP --> EB
+  EB --> EM
+  EB --> ECM
+  CLQ --> AC
+  CDQ --> AC
+  EM --> AC
+  ECM --> AC
+  AC --> CR
+  AC --> ER
+  CR --> CS
+  ER --> WA
+  ER --> ES
+  CS --> DB[(Supabase\ncourses / categories / difficulties)]
+  ES --> DB2[(Supabase\nenrollments / courses)]
+  CDTO -.->|공유| UC003[UC-003 dashboard]
+```
+
+## Implementation Plan
+
+### courses/service.ts — `listCourses` / `getCourseDetail`
+
+`getCourseDetail`은 선택적 `learnerId`를 받아 enrollments 테이블에서 수강 상태를 함께 조회한다.
+
+**Unit Test**
+
+```typescript
+describe('listCourses', () => {
+  it('published 코스 목록만 반환한다 (draft, archived 제외)')
+  it('search 파라미터 → title ILIKE 검색')
+  it('categoryId 필터 적용 시 해당 카테고리 코스만 반환')
+  it('difficultyId 필터 적용 시 해당 난이도 코스만 반환')
+  it('sort=recent → created_at DESC')
+  it('sort=popular → enrolled 수 DESC (또는 기본 정렬)')
+  it('결과 없을 시 빈 배열 반환 (에러 아님)')
+})
+
+describe('getCourseDetail', () => {
+  it('published 코스 상세와 enrollmentStatus=null(비인증) 반환')
+  it('인증된 learner → enrollmentStatus: active | cancelled | null 포함')
+  it('존재하지 않는 courseId → 404 COURSE_NOT_FOUND')
+})
+```
+
+---
+
+### enrollments/service.ts — `enrollCourse` / `cancelEnrollment`
+
+UPSERT 로직의 핵심. `(course_id, learner_id)` UNIQUE 제약을 활용해 중복 데이터 없이 처리한다.
+
+**Unit Test**
+
+```typescript
+describe('enrollCourse', () => {
+  it('수강 이력 없음 → INSERT, 201 반환')
+  it('cancelled_at IS NOT NULL (취소 이력) → UPDATE SET cancelled_at=NULL, enrolled_at=NOW(), 200 반환')
+  it('cancelled_at IS NULL (이미 수강 중) → 409 ALREADY_ENROLLED')
+  it('코스 status가 published가 아님 → 400 COURSE_NOT_ENROLLABLE')
+  it('존재하지 않는 courseId → 404 COURSE_NOT_FOUND')
+})
+
+describe('cancelEnrollment', () => {
+  it('활성 수강 취소 → cancelled_at = NOW() UPDATE, 200 반환')
+  it('수강 이력 없거나 이미 취소됨 → 404 ENROLLMENT_NOT_FOUND')
+})
+```
+
+---
+
+### course-filter.tsx
+
+URL searchParams와 동기화하는 필터 컴포넌트. 상태는 `useSearchParams` + `router.push`로 관리한다.
+
+**QA Sheet**
+
+| 시나리오 | 기대 결과 |
+|---|---|
+| 검색어 입력 후 엔터/버튼 클릭 | URL에 `?search=...` 반영, 목록 필터링 |
+| 카테고리 선택 | URL에 `?category=...` 반영 |
+| 난이도 선택 | URL에 `?difficulty=...` 반영 |
+| 정렬 변경 | URL에 `?sort=recent\|popular` 반영 |
+| 필터 초기화 | 모든 파라미터 제거, 전체 목록 복원 |
+
+---
+
+### courses/page.tsx
+
+**QA Sheet**
+
+| 시나리오 | 기대 결과 |
+|---|---|
+| 페이지 진입 | published 코스 카드 목록 표시 |
+| 로딩 중 | 스켈레톤 카드 표시 |
+| 코스 없음 (필터 결과 0건) | "검색 결과가 없습니다" 빈 상태 메시지 |
+| 코스 카드 클릭 | `/courses/[courseId]`로 이동 |
+
+---
+
+### courses/[courseId]/page.tsx + enrollment-button.tsx
+
+`useCourseDetailQuery`로 코스 정보와 수강 상태를 조회하고, `enrollment-button`이 상태에 따라 버튼을 토글한다.
+mutation 성공 후 `queryClient.invalidateQueries(['course', courseId])`로 수강 상태를 갱신한다.
+
+**QA Sheet**
+
+| 시나리오 | 기대 결과 |
+|---|---|
+| 비인증 사용자 진입 | 수강신청 버튼 미표시 또는 로그인 유도 |
+| 신규 수강신청 성공 | 버튼 → "수강취소"로 변경, 성공 토스트 |
+| 이미 수강 중인 상태 진입 | "수강취소" 버튼 표시 |
+| 수강취소 성공 | 버튼 → "수강신청"으로 변경, 취소 토스트 |
+| 취소한 코스 재신청 성공 | 버튼 → "수강취소"로 변경, 성공 토스트 |
+| 이미 수강 중 상태에서 API 409 반환 | "이미 수강 중인 코스입니다" 오류 토스트 |
+| Instructor 역할로 진입 | 수강신청 버튼 미표시 |
+| 로딩 중 | 버튼 비활성화 + 스피너 |
+</file>
+
+<file path="002/spec.md">
+# UC-002: 코스 탐색 & 수강신청/취소
+
+## Primary Actor
+
+Learner (인증된 학습자)
+
+## Precondition
+
+- 로그인 상태이며 역할이 `learner`인 사용자
+- 온보딩이 완료된 상태
+
+## Trigger
+
+- 사용자가 `/courses` 페이지에 접근하여 코스를 탐색한다.
+- 코스 상세 페이지에서 "수강신청" 또는 "수강취소" 버튼을 클릭한다.
+
+## Main Scenario
+
+### 2-1. 코스 탐색
+
+1. 사용자가 `/courses`에 접근한다.
+2. FE가 `GET /api/courses`를 호출한다 (검색어, 카테고리, 난이도, 정렬 파라미터 포함).
+3. BE가 `status = 'published'` 코스 목록을 필터·정렬하여 반환한다.
+4. FE가 코스 카드 목록을 렌더링한다.
+5. 사용자가 코스를 선택하면 코스 상세 페이지로 이동한다.
+6. FE가 `GET /api/courses/:courseId`를 호출하여 상세 정보 및 현재 수강 상태를 함께 반환받는다.
+
+### 2-2. 수강신청 (신규 / 재신청)
+
+1. 사용자가 코스 상세 페이지에서 "수강신청" 버튼을 클릭한다.
+2. FE가 `POST /api/enrollments`를 호출한다 (`{ courseId }`).
+3. BE가 코스 `status = 'published'` 여부를 검증한다.
+4. BE가 `enrollments` 테이블에서 `(course_id, learner_id)` 를 조회한다.
+   - 기록 없음 → `INSERT` (신규 신청)
+   - `cancelled_at IS NOT NULL` → `UPDATE SET cancelled_at = NULL, enrolled_at = NOW()` (재신청)
+   - `cancelled_at IS NULL` → 409 에러 반환 (이미 수강 중)
+5. BE가 성공을 반환한다.
+6. FE가 성공 피드백을 표시하고 버튼 상태를 갱신한다.
+
+### 2-3. 수강취소
+
+1. 사용자가 수강 중인 코스에서 "수강취소" 버튼을 클릭한다.
+2. FE가 `DELETE /api/enrollments/:courseId`를 호출한다.
+3. BE가 `enrollments` 레코드를 조회하고 `cancelled_at = NOW()`로 UPDATE한다.
+4. FE가 취소 성공 피드백을 표시하고 대시보드에서 해당 코스를 제거한다.
+
+## Edge Cases
+
+| 상황 | 처리 |
+|---|---|
+| 이미 수강 중인 코스 재신청 | 409 반환 → "이미 수강 중인 코스입니다" 안내 메시지 |
+| `published` 상태가 아닌 코스 신청 | 400 반환 → FE에서 신청 버튼 비표시 또는 오류 메시지 |
+| 인증되지 않은 사용자의 신청 시도 | 401 반환 → 로그인 페이지로 리다이렉트 |
+| Instructor 역할로 신청 시도 | 403 반환 → 권한 오류 메시지 |
+| 수강 중이 아닌 코스 취소 시도 | 404 반환 → FE에서 취소 버튼 비표시 |
+| 네트워크 오류 | FE에서 재시도 유도 메시지 표시 |
+
+## Business Rules
+
+- `published` 상태의 코스만 수강신청 가능하다.
+- `enrollments` 테이블의 `(course_id, learner_id)` 쌍은 UNIQUE → 재신청 시 새 레코드를 생성하지 않고 기존 레코드를 UPDATE한다 (중복 데이터 방지).
+- 수강취소 시 레코드를 삭제하지 않고 `cancelled_at = NOW()`로 갱신한다.
+- 재신청 시 기존 레코드의 `cancelled_at = NULL`, `enrolled_at = NOW()`로 복구한다.
+- 취소 상태(`cancelled_at IS NOT NULL`)의 수강은 대시보드 목록 및 성적 집계에서 제외된다.
+
+## Sequence Diagram
+
+```plantuml
+@startuml
+
+actor User
+participant FE
+participant BE
+database Database
+
+User -> FE: /courses 접근
+FE -> BE: GET /api/courses\n?search=&category=&difficulty=&sort=
+BE -> Database: SELECT courses\nWHERE status = 'published'
+Database --> BE: 코스 목록
+BE --> FE: 200 {courses}
+FE -> User: 코스 카탈로그 렌더링
+
+User -> FE: 코스 선택
+FE -> BE: GET /api/courses/:courseId
+BE -> Database: SELECT course 상세\n+ enrollment 상태 (learner_id 기준)
+Database --> BE: 코스 상세 + 수강 상태
+BE --> FE: 200 {course, enrollmentStatus}
+FE -> User: 코스 상세 표시
+
+User -> FE: "수강신청" 클릭
+FE -> BE: POST /api/enrollments\n{courseId}
+BE -> Database: SELECT courses WHERE id = ?\nAND status = 'published'
+BE -> Database: SELECT enrollments\nWHERE course_id = ? AND learner_id = ?
+
+alt 기록 없음 (신규 신청)
+  BE -> Database: INSERT enrollments\n(course_id, learner_id, enrolled_at)
+else cancelled_at IS NOT NULL (재신청)
+  BE -> Database: UPDATE enrollments\nSET cancelled_at = NULL, enrolled_at = NOW()
+else cancelled_at IS NULL (이미 수강 중)
+  BE --> FE: 409 {error: "이미 수강 중"}
+end
+
+Database --> BE: 저장 완료
+BE --> FE: 201 {enrollment}
+FE -> User: 신청 성공 피드백 + 버튼 상태 갱신
+
+User -> FE: "수강취소" 클릭
+FE -> BE: DELETE /api/enrollments/:courseId
+BE -> Database: UPDATE enrollments\nSET cancelled_at = NOW()\nWHERE course_id = ? AND learner_id = ?
+Database --> BE: 저장 완료
+BE --> FE: 200 {success}
+FE -> User: 취소 성공 피드백 + 대시보드 갱신
+
+@enduml
+```
+</file>
+
+<file path="003/plan.md">
+# Plan: UC-003 — Learner 대시보드
+
+## 개요
+
+`dashboard` feature로 구현한다.
+단일 API 엔드포인트(`GET /api/dashboard/learner`)에서 집계 쿼리를 통해 4개 섹션 데이터를 일괄 반환한다.
+`CourseDto`는 UC-002 `courses/lib/dto.ts`에서 공유한다.
+
+| 모듈 | 위치 | 설명 | 상태 |
+|---|---|---|---|
+| dashboard/error | `src/features/dashboard/backend/error.ts` | DASHBOARD_FETCH_ERROR 에러 코드 | 🆕 |
+| dashboard/schema | `src/features/dashboard/backend/schema.ts` | LearnerDashboardResponse zod 스키마 (courses, progress, upcomingAssignments, recentFeedbacks) | 🆕 |
+| dashboard/service | `src/features/dashboard/backend/service.ts` | `getLearnerDashboard`, `calculateProgress` 집계 로직 | 🆕 |
+| dashboard/route | `src/features/dashboard/backend/route.ts` | `GET /api/dashboard/learner` (withAuth + learner role guard) | 🆕 |
+| dashboard/dto | `src/features/dashboard/lib/dto.ts` | LearnerDashboardDto 타입 재노출 | 🆕 |
+| useLearnerDashboardQuery | `src/features/dashboard/hooks/useLearnerDashboardQuery.ts` | 대시보드 데이터 조회 쿼리 훅 | 🆕 |
+| enrolled-course-card | `src/features/dashboard/components/enrolled-course-card.tsx` | 진행률 바 포함 수강 코스 카드 | 🆕 |
+| upcoming-assignments-section | `src/features/dashboard/components/upcoming-assignments-section.tsx` | 마감 임박 과제 목록 섹션 | 🆕 |
+| recent-feedbacks-section | `src/features/dashboard/components/recent-feedbacks-section.tsx` | 최근 피드백 목록 섹션 | 🆕 |
+| dashboard page | `src/app/(protected)/dashboard/page.tsx` | Learner 대시보드 페이지 (protected route) | 🆕 |
+| app.ts 등록 | `src/backend/hono/app.ts` | `registerDashboardRoutes` 추가 | 🔧 |
+
+### 공유 모듈 (UC-002 의존)
+
+| 모듈 | 위치 | 용도 |
+|---|---|---|
+| CourseDto | `src/features/courses/lib/dto.ts` | 수강 코스 카드에서 코스 정보 타입으로 재사용 |
+
+## Diagram
+
+```mermaid
+graph LR
+  subgraph Pages
+    DP[dashboard/page.tsx\nprotected route]
+  end
+
+  subgraph dashboard feature
+    ECC[enrolled-course-card.tsx]
+    UAS[upcoming-assignments-section.tsx]
+    RFS[recent-feedbacks-section.tsx]
+    LDQ[useLearnerDashboardQuery]
+    DDTO[lib/dto.ts]
+
+    subgraph backend
+      DR[route.ts]
+      DS[service.ts]
+      DSC[schema.ts]
+      DE[error.ts]
+    end
+  end
+
+  subgraph shared
+    AC[apiClient]
+    WA[withAuth middleware]
+    CDTO[courses/lib/dto.ts\nCourseDto]
+  end
+
+  DP --> ECC
+  DP --> UAS
+  DP --> RFS
+  DP --> LDQ
+  LDQ --> AC
+  AC --> DR
+  DR --> WA
+  DR --> DS
+  DS --> DSC
+  DS --> DE
+  DDTO --> DSC
+  ECC --> CDTO
+  DS --> DB[(Supabase\nenrollments / courses /\nassignments / submissions)]
+```
+
+## Implementation Plan
+
+### dashboard/service.ts — `getLearnerDashboard` / `calculateProgress`
+
+`calculateProgress`는 순수 함수로 분리하여 단독 테스트가 가능하게 한다.
+
+**Unit Test**
+
+```typescript
+describe('calculateProgress', () => {
+  it('제출 0건, 과제 5건 → 0')
+  it('제출 3건(submitted), 과제 5건 → 0.6')
+  it('제출 2건(submitted) + 1건(resubmission_required), 과제 5건 → 0.4')
+  it('과제 0건 → 0 (ZeroDivisionError 방지)')
+  it('전체 제출 완료 → 1.0')
+})
+
+describe('getLearnerDashboard', () => {
+  it('cancelled_at IS NULL 수강만 courses 목록에 포함한다')
+  it('cancelled_at IS NOT NULL 수강은 목록에서 제외된다')
+  it('각 코스에 대해 진행률이 계산되어 포함된다')
+  it('마감 임박 과제는 due_at ASC 정렬로 반환된다')
+  it('최근 피드백은 graded_at DESC 정렬로 반환된다')
+  it('최근 피드백은 status=graded 제출물만 포함한다')
+  it('수강 중인 코스가 없으면 빈 배열을 반환한다 (에러 아님)')
+})
+```
+
+---
+
+### dashboard/route.ts
+
+`withAuth()`로 인증 검증 후, `currentUser.role !== 'learner'`이면 403을 반환한다.
+
+**Unit Test**
+
+```typescript
+describe('GET /api/dashboard/learner', () => {
+  it('미인증 요청 → 401 UNAUTHORIZED')
+  it('instructor 역할 요청 → 403 FORBIDDEN')
+  it('learner 요청 → 200 LearnerDashboardResponse')
+})
+```
+
+---
+
+### enrolled-course-card.tsx
+
+진행률을 `(completedCount / totalCount) * 100`으로 계산하여 `shadcn Progress` 컴포넌트로 렌더링한다.
+
+**QA Sheet**
+
+| 시나리오 | 기대 결과 |
+|---|---|
+| 진행률 0% | Progress 바 비어있음, "0%" 텍스트 |
+| 진행률 60% | Progress 바 60% 채워짐 |
+| 진행률 100% | Progress 바 완전히 채워짐, 완료 표시 |
+| 코스 클릭 | `/courses/[courseId]`로 이동 |
+
+---
+
+### dashboard/page.tsx
+
+`useLearnerDashboardQuery`로 데이터를 조회하고 4개 섹션을 렌더링한다.
+`Instructor` 역할로 접근 시 `useCurrentUser`로 역할 확인 후 `/instructor/dashboard`로 리다이렉트한다.
+
+**QA Sheet**
+
+| 시나리오 | 기대 결과 |
+|---|---|
+| 수강 중인 코스 있음 | enrolled-course-card 목록 + 진행률 바 표시 |
+| 수강 중인 코스 없음 | "수강 중인 코스가 없습니다" + "코스 탐색하기" 링크 |
+| 마감 임박 과제 있음 | 과제명·코스명·due_at 오름차순 표시 |
+| 마감 임박 과제 없음 | "임박한 과제 없습니다" 빈 상태 |
+| 최근 피드백 있음 | 과제명·점수·피드백 미리보기 표시 |
+| 최근 피드백 없음 | "아직 채점된 과제가 없습니다" 빈 상태 |
+| Instructor 역할 접근 | `/instructor/dashboard`로 리다이렉트 |
+| 로딩 중 | 각 섹션에 스켈레톤 UI 표시 |
+| API 오류 | 오류 메시지 + 재시도 버튼 표시 |
+</file>
+
+<file path="003/spec.md">
+# UC-003: Learner 대시보드
+
+## Primary Actor
+
+Learner (인증된 학습자)
+
+## Precondition
+
+- 로그인 상태이며 역할이 `learner`인 사용자
+- 온보딩이 완료된 상태
+
+## Trigger
+
+사용자가 `/dashboard` 또는 온보딩 완료 후 자동으로 Learner 대시보드에 진입한다.
+
+## Main Scenario
+
+1. 사용자가 대시보드에 접근한다.
+2. FE가 `GET /api/dashboard/learner`를 호출한다.
+3. BE가 `enrollments WHERE cancelled_at IS NULL`을 기준으로 활성 수강 목록을 조회한다.
+4. BE가 각 코스에 대해 진행률을 계산한다.
+   - 분자: `COUNT(submissions WHERE status != 'resubmission_required')`
+   - 분모: `COUNT(assignments WHERE status = 'published' AND course_id = ?)`
+5. BE가 마감 임박 과제를 조회한다 (`due_at ASC ORDER`, 미제출 과제 우선).
+6. BE가 최근 피드백을 조회한다 (`submissions WHERE status = 'graded'`, 최신순).
+7. BE가 내 코스 목록·진행률·마감 임박 과제·최근 피드백을 단일 응답으로 반환한다.
+8. FE가 각 섹션을 렌더링한다.
+
+## Edge Cases
+
+| 상황 | 처리 |
+|---|---|
+| 수강 중인 코스가 없음 | 빈 코스 목록 표시 및 코스 탐색 유도 안내 |
+| 마감 임박 과제가 없음 | 해당 섹션 빈 상태 표시 |
+| 최근 피드백이 없음 | 해당 섹션 빈 상태 표시 |
+| 인증되지 않은 접근 | 401 반환 → 로그인 페이지로 리다이렉트 |
+| Instructor 역할로 접근 | 403 반환 → Instructor 대시보드로 리다이렉트 |
+| 네트워크 오류 | FE에서 재시도 유도 메시지 표시 |
+
+## Business Rules
+
+- 취소된 수강(`cancelled_at IS NOT NULL`)은 대시보드 목록에서 제외된다.
+- 진행률은 `published` 상태 과제만 분모로 산정하며, `resubmission_required` 상태 제출물은 완료로 집계하지 않는다.
+- 미제출·미채점 과제는 진행률 분자에 포함되지 않는다 (0점 처리 없음).
+- 마감 임박 과제는 `due_at` 오름차순으로 정렬하여 가장 임박한 항목을 우선 표시한다.
+- 최근 피드백은 `status = 'graded'`인 제출물에 한해 표시한다.
+
+## Sequence Diagram
+
+```plantuml
+@startuml
+
+actor User
+participant FE
+participant BE
+database Database
+
+User -> FE: /dashboard 접근
+FE -> BE: GET /api/dashboard/learner
+BE -> Database: SELECT enrollments\nWHERE learner_id = ?\nAND cancelled_at IS NULL
+Database --> BE: 활성 수강 목록 (course_id 배열)
+BE -> Database: SELECT courses\nWHERE id IN (...)
+Database --> BE: 코스 정보
+BE -> Database: SELECT COUNT(submissions)\nWHERE status != 'resubmission_required'\nGROUP BY course_id
+Database --> BE: 코스별 완료 제출 수 (분자)
+BE -> Database: SELECT COUNT(assignments)\nWHERE status = 'published'\nGROUP BY course_id
+Database --> BE: 코스별 공개 과제 수 (분모)
+BE -> Database: SELECT assignments\nWHERE course_id IN (...)\nAND status = 'published'\nAND due_at > NOW()\nORDER BY due_at ASC
+Database --> BE: 마감 임박 과제 목록
+BE -> Database: SELECT submissions\nWHERE learner_id = ?\nAND status = 'graded'\nORDER BY graded_at DESC
+Database --> BE: 최근 피드백 목록
+BE --> FE: 200 {courses, progress, upcomingAssignments, recentFeedbacks}
+FE -> User: 대시보드 렌더링\n(내 코스 + 진행률 + 마감 임박 과제 + 최근 피드백)
+
+@enduml
+```
+</file>
+
+<file path="004/spec.md">
+# UC-004: 과제 상세 열람 (Learner)
+
+## Primary Actor
+
+Learner (인증된 학습자)
+
+## Precondition
+
+- 로그인 상태이며 역할이 `learner`인 사용자
+- 온보딩이 완료된 상태
+- 해당 코스에 활성 수강 중인 상태 (`enrollments.cancelled_at IS NULL`)
+
+---
+
+## Trigger
+
+사용자가 수강 중인 코스의 과제 목록 또는 과제 상세 페이지에 접근한다.
+
+---
+
+## Main Scenario
+
+### 4-1. 과제 목록 조회
+
+1. 사용자가 `/my/courses/:courseId/assignments` 페이지에 접근한다.
+2. FE가 `GET /api/my/courses/:courseId/assignments`를 호출한다.
+3. BE가 요청 사용자의 `enrollments` 레코드를 조회하여 활성 수강 여부를 검증한다.
+   - `cancelled_at IS NULL` 인 레코드가 없으면 403 반환.
+4. BE가 해당 코스의 `status = 'published'` 과제 목록을 조회한다.
+5. BE가 각 과제에 대한 본인 제출 상태(`submissions` 레코드)를 함께 조회한다.
+6. BE가 과제 목록을 `due_at ASC` 순으로 반환한다.
+7. FE가 과제 카드 목록을 렌더링한다. 각 카드에 마감 상태(마감 전/마감 후)와 제출 상태를 표시한다.
+
+### 4-2. 과제 상세 조회
+
+1. 사용자가 과제 카드를 클릭하여 `/my/courses/:courseId/assignments/:assignmentId` 페이지로 이동한다.
+2. FE가 `GET /api/my/courses/:courseId/assignments/:assignmentId`를 호출한다.
+3. BE가 활성 수강 여부를 재검증한다.
+4. BE가 `assignments.status = 'published'` 여부를 확인한다.
+   - `draft` 상태이면 404 반환 (존재하지 않는 것으로 처리).
+5. BE가 과제 상세 정보와 본인 제출 레코드(`submissions`)를 함께 조회하여 반환한다.
+6. FE가 과제 상세 페이지를 렌더링한다.
+   - 표시 항목: 제목, 설명, 마감일, 점수 비중(`weight`), 지각 허용 여부(`allow_late`), 재제출 허용 여부(`allow_resubmit`), 본인 제출 상태.
+   - `assignments.status = 'closed'` 이거나 `NOW() > due_at AND allow_late = false` 인 경우 제출 버튼을 비활성화한다.
+   - 미제출 상태(`submissions` 레코드 없음)이면 "제출하기" 버튼을 표시한다.
+   - 이미 제출된 상태(`submissions.status = 'submitted'` 또는 `'graded'`)이면 제출 버튼을 숨기고 제출 내역을 표시한다.
+   - `submissions.status = 'resubmission_required'`이고 `allow_resubmit = true`이면 "재제출하기" 버튼을 활성화한다.
+
+---
+
+## Edge Cases
+
+| 상황 | 처리 |
+|---|---|
+| 수강하지 않은 코스의 과제 접근 | 403 반환 → "수강 중인 코스가 아닙니다" 안내 메시지 표시 |
+| 수강 취소된 코스의 과제 접근 | 403 반환 → 코스 카탈로그로 유도 |
+| `draft` 상태 과제 직접 URL 접근 | 404 반환 → 과제 목록으로 리다이렉트 |
+| `closed` 상태 과제 열람 | 200 반환, 상세 내용은 표시하나 제출 버튼 비활성화 |
+| 마감 후(`NOW() > due_at`) `allow_late = false` 과제 접근 | 200 반환, 상세 내용 표시, 제출 버튼 비활성화 및 "마감된 과제입니다" 안내 |
+| 마감 후 `allow_late = true` 과제 접근 | 200 반환, 제출 버튼 활성화, "지각 제출 가능" 안내 배지 표시 |
+| 인증되지 않은 접근 | 401 반환 → 로그인 페이지로 리다이렉트 |
+| Instructor 역할로 접근 | 403 반환 → Instructor 전용 경로로 리다이렉트 |
+| 존재하지 않는 `assignmentId` | 404 반환 → 과제 목록으로 리다이렉트 |
+
+---
+
+## Business Rules
+
+- `assignments.status = 'published'` 상태의 과제만 Learner에게 열람 허용된다.
+- `assignments.status = 'closed'` 상태는 강사가 수동으로 설정한 강제 마감 상태이며, 열람은 가능하되 신규 제출은 불가능하다.
+- 자동 마감 조건: `status = 'published'` 이고 `NOW() > due_at` 일 때 `allow_late = false`이면 제출이 차단된다.
+- 과제 열람 전 반드시 해당 코스의 활성 수강 여부(`cancelled_at IS NULL`)를 검증해야 한다.
+- 본인 제출 상태는 과제 상세 응답에 포함되어야 하며, FE는 이를 기반으로 UI 상태를 결정한다.
+- `allow_resubmit = false`인 경우, 제출 완료 후 재제출 버튼을 표시하지 않는다.
+
+---
+
+## Sequence Diagram
+
+```plantuml
+@startuml
+
+actor User
+participant FE
+participant BE
+database Database
+
+User -> FE: /my/courses/:courseId/assignments 접근
+
+FE -> BE: GET /api/my/courses/:courseId/assignments
+BE -> Database: SELECT enrollments\nWHERE course_id = ? AND learner_id = ?\nAND cancelled_at IS NULL
+Database --> BE: 수강 레코드 (없으면 403)
+BE -> Database: SELECT assignments\nWHERE course_id = ? AND status = 'published'\nORDER BY due_at ASC
+Database --> BE: 과제 목록
+BE -> Database: SELECT submissions\nWHERE assignment_id IN (...) AND learner_id = ?
+Database --> BE: 본인 제출 상태 목록
+BE --> FE: 200 {assignments: [{...assignment, mySubmission}]}
+FE -> User: 과제 목록 렌더링\n(마감 상태 + 제출 상태 표시)
+
+User -> FE: 과제 카드 클릭
+FE -> BE: GET /api/my/courses/:courseId/assignments/:assignmentId
+BE -> Database: SELECT enrollments\nWHERE course_id = ? AND learner_id = ?\nAND cancelled_at IS NULL
+Database --> BE: 수강 레코드 (없으면 403)
+BE -> Database: SELECT assignments\nWHERE id = ? AND status != 'draft'
+Database --> BE: 과제 상세 (없으면 404)
+BE -> Database: SELECT submissions\nWHERE assignment_id = ? AND learner_id = ?
+Database --> BE: 본인 제출 레코드 (없으면 null)
+BE --> FE: 200 {assignment, mySubmission}
+
+alt status = 'closed' OR (NOW() > due_at AND allow_late = false)
+  FE -> User: 제출 버튼 비활성화 + 마감 안내
+else mySubmission IS NULL
+  FE -> User: "제출하기" 버튼 활성화
+else mySubmission.status = 'resubmission_required' AND allow_resubmit = true
+  FE -> User: "재제출하기" 버튼 활성화
+else
+  FE -> User: 제출 내역 표시 (버튼 숨김)
+end
+
+@enduml
+```
+</file>
+
+<file path="005/spec.md">
+# UC-005: 과제 제출 / 재제출 (Learner)
+
+## Primary Actor
+
+Learner (인증된 학습자)
+
+## Precondition
+
+- 로그인 상태이며 역할이 `learner`인 사용자
+- 해당 코스에 활성 수강 중인 상태 (`enrollments.cancelled_at IS NULL`)
+- 대상 과제가 `assignments.status = 'published'` 상태
+- 신규 제출: 해당 과제에 기존 제출 레코드가 없음
+- 재제출: 기존 제출 레코드의 `status = 'resubmission_required'` 이고 `assignments.allow_resubmit = true`
+
+---
+
+## Trigger
+
+사용자가 과제 상세 페이지에서 "제출하기" 또는 "재제출하기" 버튼을 클릭하고 폼을 제출한다.
+
+---
+
+## Main Scenario
+
+### 5-1. 신규 제출
+
+1. 사용자가 과제 상세 페이지에서 "제출하기" 버튼을 클릭한다.
+2. FE가 제출 폼을 표시한다. (텍스트 필드 필수, 링크 필드 선택)
+3. 사용자가 텍스트 내용을 입력하고 선택적으로 URL 링크를 입력한다.
+4. FE가 입력값을 클라이언트 측에서 검증한다.
+   - `content_text`: 필수, 1자 이상
+   - `content_link`: 선택, 입력 시 유효한 URL 형식이어야 함
+5. FE가 `POST /api/my/courses/:courseId/assignments/:assignmentId/submissions`를 호출한다.
+6. BE가 활성 수강 여부를 검증한다.
+7. BE가 과제 상태 및 제출 가능 여부를 검증한다.
+   - `assignments.status = 'closed'`이면 409 반환 (강제 마감).
+   - `NOW() > due_at` 이고 `allow_late = false`이면 409 반환 (마감 초과).
+   - `NOW() > due_at` 이고 `allow_late = true`이면 `is_late = true`로 설정.
+8. BE가 `UNIQUE(assignment_id, learner_id)` 충돌 여부를 확인한다. 기존 레코드가 있으면 409 반환.
+9. BE가 `submissions` 테이블에 INSERT한다.
+   - `status = 'submitted'`
+   - `is_late`: 마감 전이면 `false`, 마감 후 지각 허용이면 `true`
+   - `submitted_at = NOW()`
+10. BE가 성공 응답을 반환한다.
+11. FE가 성공 피드백을 표시하고 과제 상세 페이지의 제출 상태를 갱신한다.
+
+### 5-2. 재제출
+
+1. 사용자가 과제 상세 페이지에서 "재제출하기" 버튼을 클릭한다.
+   - 이 버튼은 `submissions.status = 'resubmission_required'`이고 `assignments.allow_resubmit = true`일 때만 표시된다.
+2. FE가 기존 제출 내용을 폼에 pre-fill하여 표시한다.
+3. 사용자가 내용을 수정하고 재제출한다.
+4. FE가 클라이언트 측 검증을 수행한다. (신규 제출과 동일)
+5. FE가 `PUT /api/my/courses/:courseId/assignments/:assignmentId/submissions`를 호출한다.
+6. BE가 활성 수강 여부를 검증한다.
+7. BE가 재제출 가능 여부를 검증한다.
+   - 기존 제출 레코드가 없으면 404 반환.
+   - `submissions.status != 'resubmission_required'`이면 409 반환.
+   - `assignments.allow_resubmit = false`이면 403 반환.
+   - `assignments.status = 'closed'`이면 409 반환.
+   - `NOW() > due_at` 이고 `allow_late = false`이면 409 반환.
+8. BE가 기존 `submissions` 레코드를 UPDATE한다.
+   - `content_text`, `content_link` 갱신
+   - `status = 'submitted'` 으로 초기화
+   - `score = NULL`, `feedback = NULL` 초기화
+   - `graded_at = NULL` 초기화
+   - `is_late`: 마감 전이면 `false`, 마감 후 지각 허용이면 `true`
+   - `submitted_at = NOW()` 갱신
+9. BE가 성공 응답을 반환한다.
+10. FE가 성공 피드백을 표시하고 제출 상태를 갱신한다.
+
+---
+
+## Edge Cases
+
+| 상황 | 처리 |
+|---|---|
+| `content_text` 미입력 | 클라이언트 측 검증 차단 → 필드 인라인 오류 표시, 제출 버튼 비활성화 |
+| `content_link` 형식 오류 (URL이 아닌 값) | 클라이언트 측 검증 차단 → "유효한 URL 형식이 아닙니다" 안내 |
+| `assignments.status = 'closed'` 상태에서 제출 시도 | 409 반환 → "강사에 의해 마감된 과제입니다" 안내 메시지 |
+| 마감 후 `allow_late = false` 과제 제출 시도 | 409 반환 → "제출 마감 시간이 지났습니다" 안내 메시지 |
+| 마감 후 `allow_late = true` 과제 제출 | `is_late = true`로 저장, FE에 "지각 제출로 처리되었습니다" 안내 |
+| 이미 `submitted` 또는 `graded` 상태 과제에 신규 제출 시도 | 409 반환 → FE에서 제출 버튼 미표시로 사전 차단 |
+| `allow_resubmit = false`인 과제의 재제출 시도 | 403 반환 → FE에서 재제출 버튼 미표시로 사전 차단 |
+| `resubmission_required` 상태가 아닌 제출물에 재제출 시도 | 409 반환 → FE에서 재제출 버튼 미표시로 사전 차단 |
+| 수강하지 않은 코스의 과제 제출 시도 | 403 반환 → "수강 중인 코스가 아닙니다" 안내 메시지 |
+| 인증되지 않은 요청 | 401 반환 → 로그인 페이지로 리다이렉트 |
+
+---
+
+## Business Rules
+
+- `content_text`는 필수 입력 항목이며 1자 이상이어야 한다.
+- `content_link`는 선택 입력 항목이며, 입력 시 유효한 URL 형식이어야 한다.
+- `UNIQUE(assignment_id, learner_id)` 제약으로 인해 동일 과제에 대해 하나의 제출 레코드만 존재한다. 신규 제출은 INSERT, 재제출은 UPDATE로 처리한다.
+- 마감 전 제출: `is_late = false`, 마감 후 지각 허용 제출: `is_late = true`.
+- `assignments.status = 'closed'`이면 지각 허용 여부와 무관하게 제출이 차단된다.
+- 재제출 시 기존 채점 결과(`score`, `feedback`, `graded_at`)는 NULL로 초기화되며 `status`는 `submitted`로 복원된다.
+- 재제출은 `submissions.status = 'resubmission_required'` 이고 `assignments.allow_resubmit = true`인 경우에만 허용된다.
+- 마감일 계산은 서버 시각(`NOW()`)을 기준으로 한다. 클라이언트 시각은 참조용으로만 사용한다.
+
+---
+
+## Sequence Diagram
+
+```plantuml
+@startuml
+
+actor User
+participant FE
+participant BE
+database Database
+
+== 신규 제출 ==
+
+User -> FE: "제출하기" 클릭
+FE -> User: 제출 폼 표시\n(content_text 필수, content_link 선택)
+User -> FE: 텍스트 입력 + (선택) URL 입력 후 제출
+FE -> FE: 클라이언트 측 검증\n(content_text 필수, content_link URL 형식)
+FE -> BE: POST /api/my/courses/:courseId/assignments/:assignmentId/submissions\n{content_text, content_link?}
+
+BE -> Database: SELECT enrollments\nWHERE course_id = ? AND learner_id = ?\nAND cancelled_at IS NULL
+Database --> BE: 수강 레코드 (없으면 403)
+
+BE -> Database: SELECT assignments\nWHERE id = ? AND status = 'published'
+Database --> BE: 과제 레코드 (없으면 404)
+
+BE -> BE: 마감 여부 판단\n- status = 'closed' → 409\n- NOW() > due_at AND allow_late = false → 409\n- NOW() > due_at AND allow_late = true → is_late = true
+
+BE -> Database: SELECT submissions\nWHERE assignment_id = ? AND learner_id = ?
+Database --> BE: 기존 제출 레코드 (있으면 409)
+
+BE -> Database: INSERT submissions\n(assignment_id, learner_id, content_text,\ncontent_link, is_late, status='submitted',\nsubmitted_at=NOW())
+Database --> BE: 저장 완료
+BE --> FE: 201 {submission}
+FE -> User: 성공 피드백 + 제출 상태 갱신
+
+== 재제출 ==
+
+User -> FE: "재제출하기" 클릭
+FE -> User: 기존 내용 pre-fill된 폼 표시
+User -> FE: 내용 수정 후 재제출
+FE -> FE: 클라이언트 측 검증
+FE -> BE: PUT /api/my/courses/:courseId/assignments/:assignmentId/submissions\n{content_text, content_link?}
+
+BE -> Database: SELECT enrollments (활성 수강 검증)
+Database --> BE: 수강 레코드 (없으면 403)
+
+BE -> Database: SELECT assignments\nWHERE id = ? AND status = 'published'
+Database --> BE: 과제 레코드\n(allow_resubmit, allow_late, due_at, status 확인)
+
+BE -> Database: SELECT submissions\nWHERE assignment_id = ? AND learner_id = ?
+Database --> BE: 기존 제출 레코드 (없으면 404)
+
+BE -> BE: 재제출 가능 여부 검증\n- allow_resubmit = false → 403\n- status != 'resubmission_required' → 409\n- assignment.status = 'closed' → 409\n- NOW() > due_at AND allow_late = false → 409
+
+BE -> Database: UPDATE submissions SET\ncontent_text = ?, content_link = ?,\nstatus = 'submitted', score = NULL,\nfeedback = NULL, graded_at = NULL,\nis_late = ?, submitted_at = NOW()\nWHERE assignment_id = ? AND learner_id = ?
+Database --> BE: 저장 완료
+BE --> FE: 200 {submission}
+FE -> User: 성공 피드백 + 제출 상태 갱신
+
+@enduml
+```
+</file>
+
+<file path="006/spec.md">
+# UC-006: 성적 & 피드백 열람 (Learner)
+
+## Primary Actor
+
+Learner (인증된 학습자)
+
+## Precondition
+
+- 로그인 상태이며 역할이 `learner`인 사용자
+- 해당 코스에 활성 수강 중인 상태 (`enrollments.cancelled_at IS NULL`)
+
+---
+
+## Trigger
+
+사용자가 수강 중인 코스의 성적 페이지 (`/my/courses/:courseId/grades`)에 접근한다.
+
+---
+
+## Main Scenario
+
+1. 사용자가 `/my/courses/:courseId/grades` 페이지에 접근한다.
+2. FE가 `GET /api/my/courses/:courseId/grades`를 호출한다.
+3. BE가 요청 사용자의 활성 수강 여부를 검증한다.
+   - `enrollments WHERE course_id = ? AND learner_id = ? AND cancelled_at IS NULL` 이 없으면 403 반환.
+4. BE가 해당 코스의 `status = 'published'` 과제 목록을 조회한다.
+5. BE가 각 과제에 대한 본인 제출 레코드(`submissions WHERE learner_id = ?`)를 조회한다.
+6. BE가 현재 성적(현재까지 채점된 과제 기준 가중 평균)을 계산한다.
+   - 분자: `SUM(submissions.score * assignments.weight) WHERE submissions.status = 'graded'`
+   - 분모: `SUM(assignments.weight) WHERE submissions.status = 'graded'`
+   - 채점된 제출물이 없으면 현재 성적을 `null`로 반환한다 (0점 처리 없음).
+7. BE가 과제 목록, 각 과제별 제출 상태, 현재 성적을 단일 응답으로 반환한다.
+8. FE가 성적 페이지를 렌더링한다.
+   - 상단: 현재 성적 요약 (가중 평균 점수 또는 "채점된 과제 없음")
+   - 과제 목록: 과제명, 마감일, 점수 비중(`weight`), 제출 상태, 점수(`score`), 지각 여부(`is_late`), 피드백(`feedback`)
+   - 미제출 과제는 "미제출" 배지로 표시하고 점수·피드백 없음으로 표시한다.
+   - `status = 'submitted'` 과제는 "채점 대기중" 배지로 표시한다.
+   - `status = 'resubmission_required'` 과제는 "재제출 요청" 배지로 표시하고 피드백을 함께 표시한다.
+   - `status = 'graded'` 과제는 점수와 피드백을 모두 표시한다.
+
+---
+
+## Edge Cases
+
+| 상황 | 처리 |
+|---|---|
+| 수강하지 않은 코스의 성적 접근 | 403 반환 → "수강 중인 코스가 아닙니다" 안내 메시지 표시 |
+| 수강 취소된 코스의 성적 접근 | 403 반환 → 코스 카탈로그로 유도 |
+| 제출한 과제가 하나도 없는 경우 | 현재 성적 `null` 반환 → "아직 채점된 과제가 없습니다" 안내 표시 |
+| 제출한 과제가 있으나 채점된 과제가 없는 경우 | 현재 성적 `null` 반환 → "채점 대기중인 과제가 있습니다" 안내 표시 |
+| 코스에 published 과제가 없는 경우 | 빈 과제 목록 반환 → "등록된 과제가 없습니다" 안내 표시 |
+| `resubmission_required` 상태 제출물 | 채점 집계 제외, "재제출 요청" 상태 표시 및 피드백 표시 |
+| 인증되지 않은 접근 | 401 반환 → 로그인 페이지로 리다이렉트 |
+| Instructor 역할로 접근 | 403 반환 → Instructor 전용 경로로 리다이렉트 |
+| `is_late = true`인 제출물 | 점수 및 피드백 정상 표시, "지각 제출" 배지 추가 표시 |
+
+---
+
+## Business Rules
+
+- 본인(`learner_id = 요청 사용자 ID`) 제출물만 조회 가능하다. 타인의 성적은 어떠한 경우에도 열람할 수 없다.
+- 현재 성적 계산은 `status = 'graded'`인 제출물만 집계 대상에 포함한다.
+- 미제출 과제 및 `status != 'graded'`인 제출물(submitted, resubmission_required)은 성적 집계에서 제외된다. 0점으로 처리하지 않는다.
+- 현재 성적 공식: `SUM(score × weight) / SUM(weight)` — `status = 'graded'`인 과제 기준 가중 평균.
+- 채점된 과제가 단 하나도 없으면 현재 성적은 `null`로 반환한다.
+- `is_late = true`인 제출물도 채점 완료 시 정상적으로 성적 집계에 포함된다.
+- `status = 'resubmission_required'`인 제출물은 피드백을 열람할 수 있으나 채점 집계에서 제외된다.
+- 열람 대상 과제는 `assignments.status = 'published'`인 과제에 한정된다 (`draft` 과제 제외).
+
+---
+
+## Sequence Diagram
+
+```plantuml
+@startuml
+
+actor User
+participant FE
+participant BE
+database Database
+
+User -> FE: /my/courses/:courseId/grades 접근
+FE -> BE: GET /api/my/courses/:courseId/grades
+
+BE -> Database: SELECT enrollments\nWHERE course_id = ? AND learner_id = ?\nAND cancelled_at IS NULL
+Database --> BE: 수강 레코드 (없으면 403)
+
+BE -> Database: SELECT assignments\nWHERE course_id = ? AND status = 'published'\nORDER BY due_at ASC
+Database --> BE: 과제 목록 (id, title, due_at, weight)
+
+BE -> Database: SELECT submissions\nWHERE assignment_id IN (...) AND learner_id = ?
+Database --> BE: 본인 제출 레코드 목록\n(status, score, is_late, feedback, submitted_at, graded_at)
+
+BE -> BE: 현재 성적 계산\n- 대상: status = 'graded'인 제출물\n- 분자: SUM(score * weight)\n- 분모: SUM(weight)\n- 채점된 과제 없음 → currentGrade = null
+
+BE --> FE: 200 {\n  currentGrade: number | null,\n  assignments: [{\n    ...assignment,\n    mySubmission: {...} | null\n  }]\n}
+
+FE -> User: 성적 페이지 렌더링
+
+note over FE, User
+  현재 성적 요약 섹션:
+  - currentGrade != null → "{점수}점 / 100점" 표시
+  - currentGrade == null → "채점된 과제 없음" 표시
+
+  과제 목록 섹션 (제출 상태별 표시):
+  - mySubmission == null → "미제출" 배지
+  - status = 'submitted' → "채점 대기중" 배지
+  - status = 'resubmission_required' → "재제출 요청" 배지 + 피드백
+  - status = 'graded' → 점수 + 피드백 + (is_late=true면 "지각 제출" 배지)
+end note
+
+@enduml
+```
+</file>
+
+<file path="007/spec.md">
+# UC-007: Instructor 대시보드
+
+## Primary Actor
+
+Instructor (인증된 강사)
+
+---
+
+## Precondition
+
+- 로그인 상태이며 역할이 `instructor`인 사용자
+- 온보딩이 완료된 상태
+
+---
+
+## Trigger
+
+강사가 `/instructor/dashboard` 페이지에 접근하거나 온보딩 완료 후 자동으로 대시보드에 진입한다.
+
+---
+
+## Main Scenario
+
+1. 강사가 `/instructor/dashboard`에 접근한다.
+2. FE가 `GET /api/instructor/dashboard`를 호출한다.
+3. BE가 요청자의 `instructor_id`를 세션에서 추출한다.
+4. BE가 `courses WHERE instructor_id = ?`를 조회하여 내 코스 목록(draft/published/archived 전체)을 가져온다.
+5. BE가 각 코스에 속한 `assignments`의 `submissions WHERE status = 'submitted'` 건수를 집계하여 코스별 채점 대기 수를 산출한다.
+6. BE가 채점 대기 수의 합산(전체 채점 대기 수)을 계산한다.
+7. BE가 내 코스 전체에 대한 최근 제출물을 `submitted_at DESC` 기준으로 조회한다 (최대 10건).
+8. BE가 내 코스 목록, 전체 채점 대기 수, 최근 제출물을 단일 응답으로 반환한다.
+9. FE가 각 섹션을 렌더링한다.
+   - 내 코스 목록: 코스 제목, 상태(draft/published/archived), 채점 대기 수 배지
+   - 전체 채점 대기 수 요약 카드
+   - 최근 제출물: 학습자명, 과제 제목, 코스 제목, 제출 시각
+
+---
+
+## Edge Cases
+
+| 상황 | 처리 |
+|---|---|
+| 개설한 코스가 없음 | 빈 코스 목록 표시 및 "코스 만들기" 유도 버튼 표시 |
+| 채점 대기 제출물이 없음 | 채점 대기 수 0 표시, 최근 제출물 섹션 빈 상태 표시 |
+| 인증되지 않은 사용자 접근 | 401 반환 → 로그인 페이지로 리다이렉트 |
+| Learner 역할로 접근 | 403 반환 → Learner 대시보드(`/dashboard`)로 리다이렉트 |
+| 코스는 있으나 과제가 없는 경우 | 해당 코스의 채점 대기 수 0으로 표시 |
+| 네트워크 오류 | FE에서 재시도 유도 메시지 표시 |
+| 세션 만료 | 401 반환 → 로그인 페이지로 리다이렉트 |
+
+---
+
+## Business Rules
+
+- 내 코스 목록은 `instructor_id = 현재 사용자`인 코스만 표시하며, status 무관하게 모두 포함한다 (draft/published/archived).
+- 채점 대기 수는 `submissions.status = 'submitted'`인 건수만 집계한다 (`graded`, `resubmission_required`는 제외).
+- 최근 제출물은 `submitted_at DESC` 기준으로 정렬하며, 내 코스에 속한 제출물만 표시한다.
+- 다른 강사의 코스 데이터는 절대 노출되지 않는다 (BE에서 `instructor_id` 필터 필수).
+
+---
+
+## Sequence Diagram
+
+```plantuml
+@startuml
+
+actor Instructor
+participant FE
+participant BE
+database Database
+
+Instructor -> FE: /instructor/dashboard 접근
+FE -> BE: GET /api/instructor/dashboard
+BE -> Database: SELECT courses\nWHERE instructor_id = ?\nORDER BY created_at DESC
+Database --> BE: 내 코스 목록 (전체 status)
+
+BE -> Database: SELECT assignment_id, COUNT(*) AS pending_count\nFROM submissions\nJOIN assignments ON submissions.assignment_id = assignments.id\nJOIN courses ON assignments.course_id = courses.id\nWHERE courses.instructor_id = ?\nAND submissions.status = 'submitted'\nGROUP BY courses.id
+Database --> BE: 코스별 채점 대기 수
+
+BE -> Database: SELECT submissions.*, assignments.title, courses.title,\nprofiles.name AS learner_name\nFROM submissions\nJOIN assignments ON submissions.assignment_id = assignments.id\nJOIN courses ON assignments.course_id = courses.id\nJOIN profiles ON submissions.learner_id = profiles.id\nWHERE courses.instructor_id = ?\nORDER BY submitted_at DESC\nLIMIT 10
+Database --> BE: 최근 제출물 목록
+
+BE --> FE: 200 {courses, totalPendingCount, recentSubmissions}
+FE -> Instructor: 대시보드 렌더링\n(내 코스 + 채점 대기 + 최근 제출물)
+
+@enduml
+```
+</file>
+
+<file path="008/spec.md">
+# UC-008: 코스 관리 (Instructor)
+
+## Primary Actor
+
+Instructor (인증된 강사)
+
+---
+
+## Precondition
+
+- 로그인 상태이며 역할이 `instructor`인 사용자
+- 온보딩이 완료된 상태
+- 코스 수정·상태 전환의 경우, 해당 코스의 `instructor_id`가 현재 사용자와 일치해야 한다
+
+---
+
+## Trigger
+
+- 강사가 `/instructor/dashboard`에서 "코스 만들기" 버튼을 클릭한다.
+- 강사가 코스 목록에서 특정 코스를 선택하여 수정 페이지에 진입한다.
+- 강사가 코스 상세 페이지에서 "공개" 또는 "보관" 버튼을 클릭한다.
+
+---
+
+## Main Scenario
+
+### 8-1. 코스 생성
+
+1. 강사가 코스 생성 폼에 접근한다 (`/instructor/courses/new`).
+2. 강사가 제목(필수), 소개, 카테고리, 난이도, 커리큘럼을 입력하고 "저장" 버튼을 클릭한다.
+3. FE가 입력값을 클라이언트 측에서 유효성 검사한다 (제목 필수 여부 등).
+4. FE가 `POST /api/instructor/courses`를 호출한다.
+5. BE가 요청자의 `instructor_id`를 세션에서 추출하고 요청 바디를 zod 스키마로 검증한다.
+6. BE가 `courses` 테이블에 `status = 'draft'`로 레코드를 INSERT한다.
+7. BE가 생성된 코스 정보를 반환한다.
+8. FE가 성공 피드백을 표시하고 코스 상세 페이지(`/instructor/courses/:courseId`)로 이동한다.
+
+### 8-2. 코스 수정
+
+1. 강사가 코스 상세 편집 페이지에 접근한다 (`/instructor/courses/:courseId/edit`).
+2. FE가 현재 코스 정보를 폼에 채워 렌더링한다.
+3. 강사가 수정할 필드를 변경하고 "저장" 버튼을 클릭한다.
+4. FE가 `PUT /api/instructor/courses/:courseId`를 호출한다.
+5. BE가 세션의 `instructor_id`와 코스의 `instructor_id`를 대조하여 소유권을 검증한다.
+6. 소유권 검증 실패 시 403을 반환한다.
+7. BE가 요청 바디를 zod 스키마로 검증한다.
+8. BE가 `courses` 테이블의 해당 레코드를 UPDATE한다 (`updated_at`은 트리거로 자동 갱신).
+9. BE가 수정된 코스 정보를 반환한다.
+10. FE가 성공 피드백을 표시한다.
+
+### 8-3. 코스 상태 전환
+
+1. 강사가 코스 상세 페이지에서 상태 전환 버튼을 클릭한다.
+   - `draft` 상태 → "공개하기" 버튼 → `published` 전환
+   - `published` 상태 → "보관하기" 버튼 → `archived` 전환
+2. FE가 `PATCH /api/instructor/courses/:courseId/status`를 호출한다 (`{ status: 'published' | 'archived' }`).
+3. BE가 소유권을 검증한다 (403 반환 조건 동일).
+4. BE가 현재 코스 status를 조회하여 전환 가능 여부를 검증한다.
+   - 허용: `draft → published`, `published → archived`
+   - 불허: `archived → *`, `published → draft`, `draft → archived`
+5. 전환 불가 상태의 경우 400을 반환한다.
+6. BE가 `courses.status`를 UPDATE한다.
+7. BE가 갱신된 코스 상태를 반환한다.
+8. FE가 버튼 상태 및 배지를 즉시 갱신한다.
+
+---
+
+## Edge Cases
+
+| 상황 | 처리 |
+|---|---|
+| 제목 누락 (필수 필드 미입력) | 400 유효성 오류 반환 → 인라인 오류 메시지 표시 |
+| 다른 강사 소유 코스에 접근 | 403 반환 → "권한이 없습니다" 안내 메시지 표시 |
+| 존재하지 않는 코스 ID 접근 | 404 반환 → 오류 페이지 표시 |
+| `archived → published` 등 허용되지 않는 상태 전환 시도 | 400 반환 → "전환할 수 없는 상태입니다" 안내 메시지 |
+| `published` 상태 코스를 `draft`로 되돌리려는 시도 | 400 반환 → 허용되지 않는 역방향 전환임을 안내 |
+| 비활성화된 `category_id` 또는 `difficulty_id` 사용 | 400 반환 → "사용할 수 없는 카테고리/난이도입니다" 안내 |
+| 인증되지 않은 사용자 접근 | 401 반환 → 로그인 페이지로 리다이렉트 |
+| 네트워크 오류 | FE에서 재시도 유도 메시지 표시 |
+
+---
+
+## Business Rules
+
+- 코스 생성 시 초기 status는 항상 `draft`이다.
+- 상태 전환은 단방향이다: `draft → published → archived`. 역방향 또는 단계 건너뜀은 허용하지 않는다.
+- `published` 상태로 전환 시 학습자가 코스를 탐색하고 수강신청할 수 있게 된다.
+- `archived` 상태로 전환 시 신규 수강신청이 차단되나, 기존 수강자의 접근은 유지된다.
+- 코스의 `instructor_id`는 생성 후 변경할 수 없다.
+- `category_id`, `difficulty_id`는 선택 항목이며 NULL을 허용한다.
+- 소유권 검증은 BE에서 반드시 수행하며, FE 단독 검증으로 대체할 수 없다.
+
+---
+
+## Sequence Diagram
+
+```plantuml
+@startuml
+
+actor Instructor
+participant FE
+participant BE
+database Database
+
+== 코스 생성 ==
+Instructor -> FE: 코스 생성 폼 제출\n(제목, 소개, 카테고리, 난이도, 커리큘럼)
+FE -> BE: POST /api/instructor/courses\n{title, description, categoryId, difficultyId, curriculum}
+BE -> BE: 세션에서 instructor_id 추출\n+ zod 스키마 유효성 검사
+BE -> Database: INSERT courses\n(instructor_id, title, ..., status='draft')
+Database --> BE: 생성된 코스 레코드
+BE --> FE: 201 {course}
+FE -> Instructor: 성공 피드백 + 코스 상세 페이지 이동
+
+== 코스 수정 ==
+Instructor -> FE: 수정 폼 제출\n(변경된 필드)
+FE -> BE: PUT /api/instructor/courses/:courseId\n{title, description, ...}
+BE -> Database: SELECT courses WHERE id = ?
+Database --> BE: 코스 레코드 (instructor_id 포함)
+BE -> BE: instructor_id 소유권 검증
+alt 소유권 불일치
+  BE --> FE: 403 {error: "권한 없음"}
+else 소유권 일치
+  BE -> Database: UPDATE courses\nSET title=?, ..., updated_at=NOW()\nWHERE id = ?
+  Database --> BE: 수정된 코스 레코드
+  BE --> FE: 200 {course}
+  FE -> Instructor: 성공 피드백 표시
+end
+
+== 상태 전환 ==
+Instructor -> FE: "공개하기" 또는 "보관하기" 클릭
+FE -> BE: PATCH /api/instructor/courses/:courseId/status\n{status: 'published' | 'archived'}
+BE -> Database: SELECT courses WHERE id = ?
+Database --> BE: 현재 코스 (status, instructor_id 포함)
+BE -> BE: 소유권 검증 + 허용 상태 전환 검증
+alt 검증 실패
+  BE --> FE: 400 또는 403 {error}
+else 검증 성공
+  BE -> Database: UPDATE courses SET status = ?\nWHERE id = ?
+  Database --> BE: 갱신된 코스
+  BE --> FE: 200 {course}
+  FE -> Instructor: 버튼 상태 및 배지 갱신
+end
+
+@enduml
+```
+</file>
+
+<file path="009/spec.md">
+# UC-009: 과제 관리 (Instructor)
+
+## Primary Actor
+
+Instructor (인증된 강사)
+
+---
+
+## Precondition
+
+- 로그인 상태이며 역할이 `instructor`인 사용자
+- 온보딩이 완료된 상태
+- 과제를 생성·수정하려는 코스의 `instructor_id`가 현재 사용자와 일치해야 한다
+
+---
+
+## Trigger
+
+- 강사가 코스 상세 페이지에서 "과제 추가" 버튼을 클릭한다.
+- 강사가 과제 목록에서 특정 과제를 선택하여 수정 페이지에 진입한다.
+- 강사가 과제 상세 페이지에서 "게시" 또는 "마감" 버튼을 클릭한다.
+- 강사가 과제 상세 페이지에서 제출물 목록을 조회한다.
+
+---
+
+## Main Scenario
+
+### 9-1. 과제 생성
+
+1. 강사가 코스 상세 페이지에서 "과제 추가" 버튼을 클릭한다.
+2. 강사가 과제 생성 폼에 제목(필수), 설명, 마감일(필수), 점수 비중(필수, >0), 지각 허용 여부, 재제출 허용 여부를 입력한다.
+3. FE가 클라이언트 측 유효성 검사를 수행한다.
+4. FE가 `POST /api/instructor/courses/:courseId/assignments`를 호출한다.
+5. BE가 세션의 `instructor_id`와 해당 코스의 `instructor_id`를 대조하여 소유권을 검증한다.
+6. 소유권 검증 실패 시 403을 반환한다.
+7. BE가 요청 바디를 zod 스키마로 검증한다 (`title` 필수, `due_at` 필수, `weight > 0` 필수).
+8. BE가 `assignments` 테이블에 `status = 'draft'`로 레코드를 INSERT한다.
+9. BE가 생성된 과제 정보를 반환한다.
+10. FE가 성공 피드백을 표시하고 과제 상세 페이지로 이동한다.
+
+### 9-2. 과제 수정
+
+1. 강사가 과제 수정 페이지에 접근한다 (`/instructor/assignments/:assignmentId/edit`).
+2. FE가 현재 과제 정보를 폼에 채워 렌더링한다.
+3. 강사가 수정할 필드를 변경하고 "저장" 버튼을 클릭한다.
+4. FE가 `PUT /api/instructor/assignments/:assignmentId`를 호출한다.
+5. BE가 해당 과제를 조회하고, 과제가 속한 코스의 `instructor_id`와 세션 사용자를 대조하여 소유권을 검증한다.
+6. 소유권 검증 실패 시 403을 반환한다.
+7. BE가 요청 바디를 zod 스키마로 검증한다.
+8. BE가 `assignments` 테이블의 해당 레코드를 UPDATE한다 (`updated_at`은 트리거로 자동 갱신).
+9. BE가 수정된 과제 정보를 반환한다.
+10. FE가 성공 피드백을 표시한다.
+
+### 9-3. 과제 상태 전환
+
+1. 강사가 과제 상세 페이지에서 상태 전환 버튼을 클릭한다.
+   - `draft` 상태 → "게시하기" 버튼 → `published` 전환 (학습자에게 노출)
+   - `published` 상태 → "수동 마감" 버튼 → `closed` 전환
+2. FE가 `PATCH /api/instructor/assignments/:assignmentId/status`를 호출한다 (`{ status: 'published' | 'closed' }`).
+3. BE가 소유권을 검증하고 허용 상태 전환 여부를 확인한다.
+   - 허용: `draft → published`, `published → closed`
+   - 불허: `closed → *`, `published → draft`, `draft → closed`
+4. 전환 불가 상태의 경우 400을 반환한다.
+5. BE가 `assignments.status`를 UPDATE한다.
+6. FE가 버튼 상태를 즉시 갱신한다.
+
+### 9-4. 제출물 목록 조회 및 필터링
+
+1. 강사가 과제 상세 페이지에서 "제출물" 탭에 접근한다.
+2. FE가 `GET /api/instructor/assignments/:assignmentId/submissions`를 호출한다 (필터 파라미터 포함).
+3. BE가 소유권을 검증한다 (과제가 속한 코스의 `instructor_id` 대조).
+4. BE가 필터 파라미터에 따라 쿼리를 구성한다.
+   - 필터 없음: 전체 제출물 반환
+   - `filter=pending`: `status = 'submitted'` (미채점)
+   - `filter=late`: `is_late = true`
+   - `filter=resubmission`: `status = 'resubmission_required'`
+5. BE가 필터링된 제출물 목록을 `submitted_at DESC` 기준으로 반환한다.
+6. FE가 제출물 테이블을 렌더링한다 (학습자명, 제출 시각, 지각 여부, 상태, 점수).
+
+---
+
+## Edge Cases
+
+| 상황 | 처리 |
+|---|---|
+| 제목·마감일·점수 비중 등 필수 필드 누락 | 400 유효성 오류 반환 → 인라인 오류 메시지 표시 |
+| `weight <= 0` 입력 | 400 반환 → "점수 비중은 0보다 커야 합니다" 안내 |
+| 다른 강사 소유 코스의 과제에 접근 | 403 반환 → "권한이 없습니다" 안내 |
+| 존재하지 않는 과제 ID 접근 | 404 반환 → 오류 페이지 표시 |
+| `closed → published` 등 허용되지 않는 상태 전환 시도 | 400 반환 → "전환할 수 없는 상태입니다" 안내 |
+| `published` 상태에서 마감일이 이미 지난 경우 (유효 마감) | BE에서 `NOW() > due_at` 조건을 유효 마감으로 판별, FE에서 제출 버튼 비활성화 |
+| 제출물 목록에서 유효하지 않은 필터 파라미터 | 400 반환 → 허용 필터값 목록 안내 |
+| 과제에 제출물이 없는 경우 | 빈 목록 반환 및 "제출물이 없습니다" 빈 상태 표시 |
+| 인증되지 않은 사용자 접근 | 401 반환 → 로그인 페이지로 리다이렉트 |
+
+---
+
+## Business Rules
+
+- 과제 생성 시 초기 status는 항상 `draft`이다.
+- 상태 전환은 단방향이다: `draft → published → closed`. 역방향 또는 단계 건너뜀은 허용하지 않는다.
+- `published` 상태로 전환 시 학습자가 과제를 열람하고 제출할 수 있게 된다.
+- 유효 마감 판별 로직: `status = 'closed'` OR (`status = 'published'` AND `NOW() > due_at`). DB `status = 'closed'`는 강사 수동 강제 마감 전용이며, 일반 마감은 `due_at` 비교로 판별한다.
+- `weight`는 양수(> 0)여야 하며, 성적 계산 시 비중으로 활용된다.
+- 과제 소유권 검증은 과제 → 코스 → `instructor_id` 체인으로 반드시 BE에서 수행한다.
+- 제출물 조회 필터: `pending`(미채점), `late`(지각), `resubmission`(재제출 요청) 세 가지를 지원하며 복수 적용은 허용하지 않는다.
+- 채점이 완료된(`status = 'graded'`) 과제에 재제출이 필요한 경우 `status = 'resubmission_required'`로 전환하며, 학습자는 재제출 후 `status = 'submitted'`로 되돌아간다.
+
+---
+
+## Sequence Diagram
+
+```plantuml
+@startuml
+
+actor Instructor
+participant FE
+participant BE
+database Database
+
+== 과제 생성 ==
+Instructor -> FE: 과제 생성 폼 제출\n(제목, 설명, 마감일, 점수 비중, 정책)
+FE -> BE: POST /api/instructor/courses/:courseId/assignments\n{title, description, dueAt, weight, allowLate, allowResubmit}
+BE -> Database: SELECT courses WHERE id = ?
+Database --> BE: 코스 레코드 (instructor_id 포함)
+BE -> BE: instructor_id 소유권 검증\n+ zod 스키마 유효성 검사
+alt 검증 실패
+  BE --> FE: 400 또는 403 {error}
+else 검증 성공
+  BE -> Database: INSERT assignments\n(course_id, title, ..., status='draft')
+  Database --> BE: 생성된 과제 레코드
+  BE --> FE: 201 {assignment}
+  FE -> Instructor: 성공 피드백 + 과제 상세 이동
+end
+
+== 과제 수정 ==
+Instructor -> FE: 수정 폼 제출
+FE -> BE: PUT /api/instructor/assignments/:assignmentId\n{title, description, dueAt, weight, ...}
+BE -> Database: SELECT assignments JOIN courses\nWHERE assignments.id = ?
+Database --> BE: 과제 + 코스 레코드
+BE -> BE: instructor_id 소유권 검증
+alt 소유권 불일치
+  BE --> FE: 403 {error: "권한 없음"}
+else 소유권 일치
+  BE -> Database: UPDATE assignments\nSET title=?, ..., updated_at=NOW()
+  Database --> BE: 수정된 과제 레코드
+  BE --> FE: 200 {assignment}
+  FE -> Instructor: 성공 피드백 표시
+end
+
+== 과제 상태 전환 ==
+Instructor -> FE: "게시하기" 또는 "수동 마감" 클릭
+FE -> BE: PATCH /api/instructor/assignments/:assignmentId/status\n{status: 'published' | 'closed'}
+BE -> Database: SELECT assignments JOIN courses\nWHERE assignments.id = ?
+Database --> BE: 과제 + 코스 (현재 status 포함)
+BE -> BE: 소유권 검증 + 허용 상태 전환 검증
+alt 검증 실패
+  BE --> FE: 400 또는 403 {error}
+else 검증 성공
+  BE -> Database: UPDATE assignments SET status = ?\nWHERE id = ?
+  Database --> BE: 갱신된 과제
+  BE --> FE: 200 {assignment}
+  FE -> Instructor: 버튼 상태 갱신
+end
+
+== 제출물 목록 조회 ==
+Instructor -> FE: 제출물 탭 접근\n(필터: pending | late | resubmission)
+FE -> BE: GET /api/instructor/assignments/:assignmentId/submissions\n?filter=pending
+BE -> Database: SELECT assignments JOIN courses\nWHERE assignments.id = ?
+Database --> BE: 소유권 확인용 코스 레코드
+BE -> BE: instructor_id 소유권 검증
+BE -> Database: SELECT submissions JOIN profiles\nWHERE assignment_id = ?\nAND status = 'submitted' (필터 적용)\nORDER BY submitted_at DESC
+Database --> BE: 필터링된 제출물 목록
+BE --> FE: 200 {submissions, totalCount}
+FE -> Instructor: 제출물 테이블 렌더링\n(학습자명, 제출 시각, 지각 여부, 상태, 점수)
+
+@enduml
+```
+</file>
+
+<file path="010/spec.md">
+# UC-010: 제출물 채점 & 피드백
+
+## Primary Actor
+
+Instructor (인증된 강사)
+
+---
+
+## Precondition
+
+- 로그인 상태이며 역할이 `instructor`인 사용자
+- 채점 대상 과제(`assignments`)가 자신이 소유한 코스에 속해 있음
+- 채점 대상 제출물(`submissions`)의 `status`가 `submitted` 또는 `resubmission_required` 상태
+
+---
+
+## Trigger
+
+강사가 Instructor 대시보드 또는 과제 상세 페이지에서 특정 제출물을 선택하여 채점 화면에 진입한다.
+
+---
+
+## Main Scenario
+
+1. 강사가 과제 상세 페이지에서 제출물 목록을 확인한다.
+2. FE가 `GET /api/instructor/assignments/:assignmentId/submissions`를 호출하여 제출물 목록을 불러온다.
+3. BE가 해당 과제에 속한 제출물 목록 (learner 정보, 제출 시각, 현재 status 포함)을 반환한다.
+4. 강사가 특정 제출물을 선택한다.
+5. FE가 제출물 상세(content_text, content_link, submitted_at, 기존 피드백 등)를 렌더링한다.
+
+### 10-1. 점수 채점 (graded)
+
+6a. 강사가 점수(0~100)와 피드백 텍스트를 입력한 후 "채점 완료" 버튼을 클릭한다.
+7a. FE가 `PATCH /api/instructor/submissions/:submissionId/grade`를 호출한다 (`{ score, feedback }`).
+8a. BE가 요청을 검증한다.
+   - `score`가 0~100 정수 범위인지 확인
+   - `feedback`이 비어 있지 않은지 확인
+   - `submission.assignment.course`가 요청 강사 소유인지 확인
+9a. BE가 `submissions` 레코드를 업데이트한다 (`status = 'graded'`, `score = score`, `feedback = feedback`, `graded_at = NOW()`).
+10a. BE가 성공 응답을 반환한다.
+11a. FE가 성공 토스트를 표시하고 제출물 목록의 status를 갱신한다.
+
+### 10-2. 재제출 요청 (resubmission_required)
+
+6b. 강사가 피드백 텍스트만 입력한 후 "재제출 요청" 버튼을 클릭한다.
+7b. FE가 `PATCH /api/instructor/submissions/:submissionId/request-resubmission`을 호출한다 (`{ feedback }`).
+8b. BE가 요청을 검증한다.
+   - `feedback`이 비어 있지 않은지 확인
+   - `submission.assignment.course`가 요청 강사 소유인지 확인
+   - 과제의 `allow_resubmit = true` 여부 확인
+9b. BE가 `submissions` 레코드를 업데이트한다 (`status = 'resubmission_required'`, `feedback = feedback`, `score = NULL`).
+10b. BE가 성공 응답을 반환한다.
+11b. FE가 성공 토스트를 표시하고 제출물 목록의 status를 갱신한다.
+12b. Learner 대시보드의 해당 과제 상태가 `resubmission_required`로 반영된다.
+
+---
+
+## Edge Cases
+
+| 상황 | 처리 |
+|---|---|
+| 점수가 0~100 범위를 벗어남 | 400 반환 → FE 입력 필드 인라인 오류 표시 |
+| 피드백이 빈 문자열 | 400 반환 → "피드백을 입력해 주세요" 안내 메시지 |
+| 요청 강사가 해당 코스 소유자가 아님 | 403 반환 → 권한 오류 메시지 |
+| 이미 `graded` 상태인 제출물에 재채점 시도 | 200 허용 (덮어쓰기) — graded_at을 최신으로 갱신 |
+| `allow_resubmit = false` 과제에 재제출 요청 시도 | 400 반환 → "재제출을 허용하지 않는 과제입니다" 메시지 |
+| 제출물이 존재하지 않음 | 404 반환 → FE에서 오류 페이지 표시 |
+| 과제가 `closed` 또는 자동 마감 상태에서 채점 시도 | 채점은 허용 (마감 후 채점 가능), 제출만 불가 |
+| 네트워크 오류 | FE에서 재시도 유도 메시지 표시 |
+
+---
+
+## Business Rules
+
+- 채점 시 `score`(0~100 정수)와 `feedback`은 모두 필수이다.
+- 재제출 요청 시 `score`는 저장하지 않으며 (`score = NULL`), `feedback`만 필수이다.
+- 채점 완료 시 `graded_at = NOW()`로 채점 시각을 기록한다.
+- 재제출 요청은 과제의 `allow_resubmit = true`인 경우에만 허용한다.
+- 강사는 자신이 소유한 코스의 과제 제출물만 채점할 수 있다.
+- 이미 채점된(`graded`) 제출물을 재채점하는 것은 허용하며, 이전 점수와 피드백은 덮어쓴다.
+- 채점 결과는 Learner 대시보드의 과제 상태 및 최근 피드백 섹션에 즉시 반영된다.
+
+---
+
+## Sequence Diagram
+
+```plantuml
+@startuml
+
+actor Instructor
+participant FE
+participant BE
+database Database
+
+Instructor -> FE: 과제 제출물 목록 접근
+FE -> BE: GET /api/instructor/assignments/:assignmentId/submissions
+BE -> Database: SELECT submissions\nJOIN profiles (learner)\nWHERE assignment_id = ?
+Database --> BE: 제출물 목록 (status, submitted_at 포함)
+BE --> FE: 200 {submissions}
+FE -> Instructor: 제출물 목록 렌더링
+
+Instructor -> FE: 제출물 선택
+
+group 10-1. 점수 채점
+  Instructor -> FE: score + feedback 입력 후 "채점 완료" 클릭
+  FE -> BE: PATCH /api/instructor/submissions/:submissionId/grade\n{score, feedback}
+  BE -> Database: SELECT submissions\nJOIN assignments JOIN courses\nWHERE id = :submissionId
+  Database --> BE: 제출물 + 과제 + 코스 소유자 정보
+  BE -> BE: 권한 확인 (course.instructor_id == 요청자)
+  BE -> BE: 유효성 검증 (score 범위, feedback 필수)
+  BE -> Database: UPDATE submissions\nSET status='graded', score=?, feedback=?,\ngraded_at=NOW()\nWHERE id = :submissionId
+  Database --> BE: 업데이트 완료
+  BE --> FE: 200 {submission}
+  FE -> Instructor: 채점 완료 토스트 + 목록 status 갱신
+end
+
+group 10-2. 재제출 요청
+  Instructor -> FE: feedback 입력 후 "재제출 요청" 클릭
+  FE -> BE: PATCH /api/instructor/submissions/:submissionId/request-resubmission\n{feedback}
+  BE -> Database: SELECT submissions\nJOIN assignments JOIN courses\nWHERE id = :submissionId
+  Database --> BE: 제출물 + 과제 (allow_resubmit 포함) + 코스 정보
+  BE -> BE: 권한 확인 (course.instructor_id == 요청자)
+  BE -> BE: allow_resubmit = true 확인
+  BE -> BE: feedback 필수 검증
+  BE -> Database: UPDATE submissions\nSET status='resubmission_required',\nfeedback=?, score=NULL\nWHERE id = :submissionId
+  Database --> BE: 업데이트 완료
+  BE --> FE: 200 {submission}
+  FE -> Instructor: 재제출 요청 완료 토스트 + 목록 status 갱신
+end
+
+@enduml
+```
+</file>
+
+<file path="011/spec.md">
+# UC-011: Assignment 게시/마감
+
+## Primary Actor
+
+Instructor (인증된 강사)
+
+---
+
+## Precondition
+
+- 로그인 상태이며 역할이 `instructor`인 사용자
+- 대상 과제(`assignments`)가 자신이 소유한 코스에 속해 있음
+- 게시 전환 시: 과제의 현재 `status`가 `draft`
+- 수동 마감 시: 과제의 현재 `status`가 `published`
+
+---
+
+## Trigger
+
+강사가 Instructor 대시보드 또는 과제 관리 페이지에서 과제의 상태를 변경한다.
+
+---
+
+## 유효 상태 (Effective Status) 정의
+
+DB의 `status` 컬럼 값과 별도로, 클라이언트 및 API 응답에서 `effective_status`를 계산하여 사용한다.
+
+| DB status | 조건 | effective_status | 설명 |
+|---|---|---|---|
+| `closed` | (무조건) | `closed` | 강사 수동 마감, 제출 불가 |
+| `published` | `NOW() > due_at` AND `allow_late = false` | `closed` | 자동 마감, 제출 불가 |
+| `published` | `NOW() > due_at` AND `allow_late = true` | `overdue` | 지각 제출 허용 중, 제출 가능 (`is_late = true` 처리) |
+| `published` | `NOW() <= due_at` | `published` | 진행 중, 제출 가능 |
+| `draft` | (무조건) | `draft` | 미게시, 학습자 비노출 |
+
+- `effective_status = 'closed'`이면 학습자의 신규 제출이 불가능하다.
+- `effective_status = 'overdue'`이면 제출은 가능하되 `is_late = true`로 기록된다.
+- `effective_status = 'closed'` 또는 `overdue`이더라도 강사의 채점은 허용된다.
+
+---
+
+## Main Scenario
+
+### 11-1. 과제 게시 (draft → published)
+
+1. 강사가 과제 목록에서 `draft` 상태인 과제를 선택한다.
+2. FE가 `GET /api/instructor/assignments/:assignmentId`를 호출하여 과제 상세 및 `effective_status`를 불러온다.
+3. BE가 `effective_status`를 계산하여 응답에 포함시킨다.
+4. 강사가 "게시" 버튼을 클릭한다.
+5. FE가 `PATCH /api/instructor/assignments/:assignmentId/status`를 호출한다 (`{ status: 'published' }`).
+6. BE가 요청을 검증한다.
+   - 요청 강사가 해당 코스의 소유자인지 확인
+   - 현재 DB `status`가 `draft`인지 확인 (`published` 또는 `closed`로의 중복 게시 차단)
+7. BE가 `assignments` 레코드를 업데이트한다 (`status = 'published'`).
+8. BE가 성공 응답을 반환한다 (`effective_status` 포함).
+9. FE가 성공 토스트를 표시하고 과제 상태 뱃지를 `published`로 갱신한다.
+10. 학습자의 코스 상세 및 대시보드에 해당 과제가 노출된다.
+
+### 11-2. 과제 수동 마감 (published → closed)
+
+1. 강사가 과제 목록에서 `published` 상태인 과제를 선택한다.
+2. FE가 `GET /api/instructor/assignments/:assignmentId`를 호출하여 과제 상세 및 `effective_status`를 불러온다.
+3. 강사가 "마감" 버튼을 클릭한다.
+4. FE가 마감 확인 다이얼로그를 표시한다 ("마감 후 학습자 제출이 불가합니다. 계속하시겠습니까?").
+5. 강사가 확인을 클릭한다.
+6. FE가 `PATCH /api/instructor/assignments/:assignmentId/status`를 호출한다 (`{ status: 'closed' }`).
+7. BE가 요청을 검증한다.
+   - 요청 강사가 해당 코스의 소유자인지 확인
+   - 현재 DB `status`가 `published`인지 확인
+8. BE가 `assignments` 레코드를 업데이트한다 (`status = 'closed'`).
+9. BE가 성공 응답을 반환한다 (`effective_status = 'closed'` 포함).
+10. FE가 성공 토스트를 표시하고 과제 상태 뱃지를 `closed`로 갱신한다.
+11. 이후 학습자의 제출 시도는 차단되며, 강사의 채점은 계속 허용된다.
+
+---
+
+## Edge Cases
+
+| 상황 | 처리 |
+|---|---|
+| 이미 `published` 상태인 과제에 게시 요청 | 400 반환 → "이미 게시된 과제입니다" 메시지 |
+| `draft` 상태인 과제에 마감 요청 | 400 반환 → "게시된 과제만 마감할 수 있습니다" 메시지 |
+| 요청 강사가 해당 코스 소유자가 아님 | 403 반환 → 권한 오류 메시지 |
+| 과제가 존재하지 않음 | 404 반환 → FE에서 오류 페이지 표시 |
+| 자동 마감(`due_at` 초과) 상태에서 수동 마감 재시도 | DB `status`는 여전히 `published`이므로 수동 마감 허용 → `closed`로 갱신 |
+| 마감된 과제에 학습자가 제출 시도 | 제출 API에서 `effective_status` 확인 후 400 반환 → "마감된 과제입니다" 메시지 |
+| 네트워크 오류 | FE에서 재시도 유도 메시지 표시 |
+
+---
+
+## Business Rules
+
+- 과제의 상태 전환은 `draft → published → closed` 단방향이다. 역방향 전환(`closed → published` 등)은 허용하지 않는다.
+- `effective_status`는 DB `status`와 `due_at`을 조합하여 서버에서 계산하며, 클라이언트는 이 값을 기준으로 UI를 렌더링한다.
+- `effective_status = 'closed'`인 과제는 학습자의 신규 제출이 불가능하다.
+- `effective_status = 'overdue'`인 과제는 지각 제출이 허용(`allow_late = true`)되며, 제출 시 `is_late = true`로 기록된다.
+- `effective_status = 'closed'` 또는 `overdue`이더라도 강사는 기존 제출물에 대한 채점 및 피드백을 수행할 수 있다.
+- `published` 상태의 과제만 학습자 대시보드 및 코스 상세에 노출된다.
+- 강사는 자신이 소유한 코스의 과제만 상태를 변경할 수 있다.
+- 수동 마감(`closed`)은 `due_at` 도달 여부와 무관하게 즉시 적용된다.
+
+---
+
+## Sequence Diagram
+
+```plantuml
+@startuml
+
+actor Instructor
+participant FE
+participant BE
+database Database
+
+Instructor -> FE: 과제 관리 페이지 접근
+FE -> BE: GET /api/instructor/assignments/:assignmentId
+BE -> Database: SELECT assignments\nWHERE id = :assignmentId
+Database --> BE: 과제 정보 (status, due_at 포함)
+BE -> BE: effective_status 계산\n(status='closed' OR\n(status='published' AND NOW()>due_at)\n→ 'closed', 그 외 status 값)
+BE --> FE: 200 {assignment, effective_status}
+FE -> Instructor: 과제 상세 + 상태 뱃지 렌더링
+
+group 11-1. 과제 게시 (draft → published)
+  Instructor -> FE: "게시" 버튼 클릭
+  FE -> BE: PATCH /api/instructor/assignments/:assignmentId/status\n{status: 'published'}
+  BE -> Database: SELECT assignments JOIN courses\nWHERE id = :assignmentId
+  Database --> BE: 과제 + 코스 소유자 정보
+  BE -> BE: 권한 확인 (course.instructor_id == 요청자)
+  BE -> BE: 현재 DB status = 'draft' 검증
+  BE -> Database: UPDATE assignments\nSET status = 'published'\nWHERE id = :assignmentId
+  Database --> BE: 업데이트 완료
+  BE -> BE: effective_status 재계산
+  BE --> FE: 200 {assignment, effective_status: 'published'}
+  FE -> Instructor: 게시 완료 토스트 + 상태 뱃지 갱신
+end
+
+group 11-2. 과제 수동 마감 (published → closed)
+  Instructor -> FE: "마감" 버튼 클릭
+  FE -> Instructor: 마감 확인 다이얼로그 표시
+  Instructor -> FE: 확인 클릭
+  FE -> BE: PATCH /api/instructor/assignments/:assignmentId/status\n{status: 'closed'}
+  BE -> Database: SELECT assignments JOIN courses\nWHERE id = :assignmentId
+  Database --> BE: 과제 + 코스 소유자 정보
+  BE -> BE: 권한 확인 (course.instructor_id == 요청자)
+  BE -> BE: 현재 DB status = 'published' 검증
+  BE -> Database: UPDATE assignments\nSET status = 'closed'\nWHERE id = :assignmentId
+  Database --> BE: 업데이트 완료
+  BE --> FE: 200 {assignment, effective_status: 'closed'}
+  FE -> Instructor: 마감 완료 토스트 + 상태 뱃지 갱신
+end
+
+@enduml
+```
+</file>
+
+<file path="012/spec.md">
+# UC-012: 운영 (Operator)
+
+## Primary Actor
+
+- 신고 접수(12-1): Learner 또는 Instructor (인증된 모든 사용자)
+- 신고 처리(12-2): Operator (운영자)
+- 메타데이터 관리(12-3): Operator (운영자)
+
+---
+
+## Precondition
+
+- 12-1 신고 접수: 로그인 상태인 사용자 (역할 무관)
+- 12-2 신고 처리: 로그인 상태이며 역할이 `operator`인 사용자
+- 12-3 메타데이터 관리: 로그인 상태이며 역할이 `operator`인 사용자
+
+---
+
+## Trigger
+
+- 12-1: 사용자가 코스/과제/제출물/다른 사용자에 대해 신고 버튼을 클릭한다.
+- 12-2: 운영자가 신고 관리 대시보드에서 신고 목록을 확인하고 처리한다.
+- 12-3: 운영자가 메타데이터 관리 페이지에서 카테고리 또는 난이도를 생성·수정·비활성화한다.
+
+---
+
+## Main Scenario
+
+### 12-1. 신고 접수
+
+1. 사용자가 코스/과제/제출물/사용자 상세 페이지에서 "신고" 버튼을 클릭한다.
+2. FE가 신고 모달을 표시한다 (신고 사유 선택 + 상세 내용 입력).
+3. 사용자가 `reason`(신고 유형)과 `content`(상세 내용)를 입력하고 제출한다.
+4. FE가 `POST /api/reports`를 호출한다 (`{ target_type, target_id, reason, content }`).
+5. BE가 요청을 검증한다.
+   - `target_type`이 `course | assignment | submission | user` 중 하나인지 확인
+   - `reason`과 `content`가 비어 있지 않은지 확인
+   - `target_id`에 해당하는 대상이 실제로 존재하는지 확인
+6. BE가 `reports` 레코드를 생성한다 (`status = 'received'`, `reporter_id = 요청 사용자 id`).
+7. BE가 성공 응답을 반환한다.
+8. FE가 "신고가 접수되었습니다" 토스트를 표시하고 모달을 닫는다.
+
+### 12-2. 신고 처리
+
+1. 운영자가 신고 관리 대시보드에 접근한다.
+2. FE가 `GET /api/operator/reports`를 호출한다 (status 필터, 정렬 파라미터 포함).
+3. BE가 운영자 권한을 확인한 후 신고 목록을 반환한다.
+4. 운영자가 특정 신고를 선택하여 상세 내용을 확인한다.
+5. 운영자가 신고 처리 상태를 `investigating`으로 변경한다.
+6. FE가 `PATCH /api/operator/reports/:reportId`를 호출한다 (`{ status: 'investigating' }`).
+7. BE가 `reports` 레코드를 업데이트한다.
+8. 운영자가 조사를 완료하고 처리 액션을 결정한다.
+9. 운영자가 처리 내용(`status: 'resolved'`, `action`)을 입력하고 "처리 완료" 버튼을 클릭한다.
+10. FE가 `PATCH /api/operator/reports/:reportId`를 호출한다 (`{ status: 'resolved', action }`).
+11. BE가 `reports` 레코드를 업데이트한다 (`status = 'resolved'`, `action = action`).
+12. 선택된 액션에 따라 후속 처리를 수행한다.
+    - `warning`: 대상 사용자에게 경고 처리 (profiles 또는 별도 경고 로그)
+    - `invalidate_submission`: 해당 `submission`의 `status`를 무효화 처리
+    - `restrict_account`: 해당 사용자 계정 접근 제한 처리
+13. BE가 성공 응답을 반환한다.
+14. FE가 신고 목록의 상태를 갱신한다.
+
+### 12-3. 메타데이터 관리 (카테고리 & 난이도 CRUD)
+
+1. 운영자가 메타데이터 관리 페이지에 접근한다.
+2. FE가 `GET /api/operator/categories`와 `GET /api/operator/difficulties`를 병렬로 호출한다.
+3. BE가 운영자 권한을 확인한 후 전체 목록(`is_active` 포함)을 반환한다.
+4. FE가 카테고리/난이도 목록을 테이블로 렌더링한다.
+
+**생성:**
+5a. 운영자가 새 이름을 입력하고 "추가" 버튼을 클릭한다.
+6a. FE가 `POST /api/operator/categories` 또는 `POST /api/operator/difficulties`를 호출한다 (`{ name }`).
+7a. BE가 이름 중복 여부를 확인한다.
+8a. BE가 새 레코드를 생성한다 (`is_active = true`).
+9a. FE가 목록을 갱신한다.
+
+**수정 (이름 변경 또는 활성화 상태 변경):**
+5b. 운영자가 항목을 선택하고 이름을 수정하거나 `is_active` 토글을 변경한다.
+6b. FE가 `PATCH /api/operator/categories/:id` 또는 `PATCH /api/operator/difficulties/:id`를 호출한다 (`{ name?, is_active? }`).
+7b. BE가 이름 중복 여부를 확인한다(이름 변경 시).
+8b. BE가 레코드를 업데이트한다.
+9b. FE가 목록을 갱신한다.
+
+**비활성화 (삭제 대신):**
+5c. 운영자가 현재 코스에서 사용 중인 카테고리/난이도의 `is_active` 토글을 끈다.
+6c. FE가 비활성화 확인 다이얼로그를 표시한다 ("사용 중인 항목입니다. 신규 코스에서 선택 불가합니다. 계속하시겠습니까?").
+7c. FE가 `PATCH /api/operator/categories/:id`를 호출한다 (`{ is_active: false }`).
+8c. BE가 레코드를 업데이트한다 (`is_active = false`).
+9c. 기존에 해당 값을 사용하는 코스에는 영향 없음. 신규 코스 생성 시 선택 목록에서 제외된다.
+
+---
+
+## Edge Cases
+
+| 상황 | 처리 |
+|---|---|
+| 신고 대상(`target_id`)이 존재하지 않음 | 404 반환 → "존재하지 않는 대상입니다" 메시지 |
+| `reason` 또는 `content`가 빈 값으로 신고 제출 | 400 반환 → FE 입력 필드 인라인 오류 표시 |
+| 동일한 사용자가 동일 대상을 중복 신고 | 허용 (중복 신고 자체를 차단하지 않음 — 운영자가 판단) |
+| Operator가 아닌 역할로 신고 처리 API 접근 | 403 반환 → 권한 오류 메시지 |
+| `received` 상태 신고를 `investigating` 건너뛰고 `resolved`로 직접 변경 | 허용 (단계 강제 없음, 운영자 재량) |
+| 이미 `resolved`된 신고에 재처리 시도 | 400 반환 → "이미 처리 완료된 신고입니다" 메시지 |
+| 카테고리/난이도 이름 중복 생성 시도 | 409 반환 → "이미 존재하는 이름입니다" 메시지 |
+| 사용 중인 카테고리/난이도 비활성화 | 비활성화 허용 (기존 코스 데이터 보존), FE에서 경고 안내 후 진행 |
+| `invalidate_submission` 액션 대상 제출물이 이미 무효화 상태 | 멱등 처리 (재처리 시 동일 결과, 오류 없음) |
+| 네트워크 오류 | FE에서 재시도 유도 메시지 표시 |
+
+---
+
+## Business Rules
+
+- 신고 접수는 인증된 모든 역할(Learner, Instructor, Operator)이 가능하다.
+- 신고 처리(`GET/PATCH /api/operator/*`) 및 메타데이터 관리는 `operator` 역할만 수행할 수 있다.
+- 신고 상태는 `received → investigating → resolved` 순서를 권장하나 단계 강제는 없다.
+- 신고 처리 액션은 `warning | invalidate_submission | restrict_account` 중 하나이며, `resolved` 상태일 때만 액션을 기록한다.
+- `action = null`인 `resolved` 상태도 허용한다 (조사 결과 무혐의 처리 가능).
+- 카테고리/난이도는 물리적으로 삭제하지 않으며 `is_active = false`로 비활성화한다.
+- `is_active = false`인 항목은 코스 생성/수정 시 선택 불가하지만, 기존 코스의 데이터는 유지된다.
+- 카테고리/난이도의 `name`은 UNIQUE 제약이 있어 중복 이름 생성/수정이 불가하다.
+
+> **스키마 추가 필요 (구현 시 마이그레이션 필요):**
+> - `warning` 액션 처리를 위한 `warnings` 테이블 (user_id, report_id, warned_at) — 현재 DB 스키마 미포함
+> - `restrict_account` 액션 처리를 위한 `profiles.is_active` 컬럼 — 현재 DB 스키마 미포함
+> - `invalidate_submission` 액션은 현재 `submission_status` ENUM에 별도 `invalidated` 값이 없으므로, `score = NULL`, `status = 'submitted'`로 초기화하는 방식으로 처리하거나 ENUM 확장이 필요하다.
+
+---
+
+## Sequence Diagram
+
+```plantuml
+@startuml
+
+actor User as "User\n(Learner/Instructor)"
+actor Operator
+participant FE
+participant BE
+database Database
+
+group 12-1. 신고 접수
+  User -> FE: "신고" 버튼 클릭
+  FE -> User: 신고 모달 표시\n(target_type, reason, content 입력)
+  User -> FE: 신고 내용 입력 후 제출
+  FE -> BE: POST /api/reports\n{target_type, target_id, reason, content}
+  BE -> BE: 입력값 유효성 검증\n(target_type enum, reason/content 필수)
+  BE -> Database: SELECT [target 테이블]\nWHERE id = :target_id
+  Database --> BE: 대상 존재 여부 확인
+  BE -> Database: INSERT reports\n(reporter_id, target_type, target_id,\nreason, content, status='received')
+  Database --> BE: 저장 완료
+  BE --> FE: 201 {reportId}
+  FE -> User: "신고가 접수되었습니다" 토스트
+end
+
+group 12-2. 신고 처리
+  Operator -> FE: 신고 관리 대시보드 접근
+  FE -> BE: GET /api/operator/reports\n?status=&sort=
+  BE -> BE: operator 권한 확인
+  BE -> Database: SELECT reports\nORDER BY created_at DESC
+  Database --> BE: 신고 목록
+  BE --> FE: 200 {reports}
+  FE -> Operator: 신고 목록 렌더링
+
+  Operator -> FE: 신고 선택 + "조사 중" 상태로 변경
+  FE -> BE: PATCH /api/operator/reports/:reportId\n{status: 'investigating'}
+  BE -> Database: UPDATE reports\nSET status='investigating'
+  Database --> BE: 업데이트 완료
+  BE --> FE: 200 {report}
+
+  Operator -> FE: 처리 완료 + action 선택
+  FE -> BE: PATCH /api/operator/reports/:reportId\n{status: 'resolved', action}
+  BE -> Database: UPDATE reports\nSET status='resolved', action=?
+  Database --> BE: 업데이트 완료
+
+  alt action = 'invalidate_submission'
+    note over BE: score=NULL, status='submitted' 초기화\n(별도 invalidated 상태 미지원 — 추후 ENUM 확장 필요)
+    BE -> Database: UPDATE submissions\nSET status='submitted', score=NULL, feedback=NULL\nWHERE id = report.target_id
+  else action = 'restrict_account'
+    note over BE: profiles.is_active 컬럼 추가 마이그레이션 필요
+    BE -> Database: UPDATE profiles\nSET is_active=false\nWHERE id = report.target_id
+  else action = 'warning'
+    note over BE: warnings 테이블 추가 마이그레이션 필요
+    BE -> Database: INSERT warnings\n(user_id, report_id, warned_at)
+  end
+
+  Database --> BE: 처리 완료
+  BE --> FE: 200 {report}
+  FE -> Operator: 처리 완료 토스트 + 목록 갱신
+end
+
+group 12-3. 메타데이터 관리
+  Operator -> FE: 메타데이터 관리 페이지 접근
+  FE -> BE: GET /api/operator/categories
+  FE -> BE: GET /api/operator/difficulties
+  BE -> BE: operator 권한 확인
+  BE -> Database: SELECT categories\nSELECT difficulties
+  Database --> BE: 전체 목록 (is_active 포함)
+  BE --> FE: 200 {categories}\n200 {difficulties}
+  FE -> Operator: 목록 테이블 렌더링
+
+  alt 생성
+    Operator -> FE: 새 이름 입력 + "추가" 클릭
+    FE -> BE: POST /api/operator/categories\n{name}
+    BE -> Database: INSERT categories\n(name, is_active=true)
+    Database --> BE: 저장 완료
+    BE --> FE: 201 {category}
+  else 수정 / 비활성화
+    Operator -> FE: 항목 이름 수정 또는 is_active 토글
+    FE -> BE: PATCH /api/operator/categories/:id\n{name?, is_active?}
+    BE -> Database: UPDATE categories\nSET name=?, is_active=?\nWHERE id = :id
+    Database --> BE: 업데이트 완료
+    BE --> FE: 200 {category}
+  end
+
+  FE -> Operator: 목록 갱신
+end
+
+@enduml
+```
+</file>
+
+<file path="database.md">
+# Database Design
+
+> 기반 문서: `prd.md`, `workflow.md`
+> 유저플로우에 명시적으로 포함된 데이터만 포함한다.
+> DBMS: PostgreSQL (via Supabase)
+
+---
+
+## 1. 데이터 플로우 (Database 관점)
+
+```
+[1. 온보딩]
+  Supabase auth.users (INSERT)
+    → profiles     (INSERT: name, phone, role)
+    → terms_agreements (INSERT: user_id, agreed_at)
+
+[2. 코스 탐색]
+  courses (READ: status = 'published')
+    ← categories  JOIN (카테고리 필터)
+    ← difficulties JOIN (난이도 필터)
+
+[3. 수강신청 / 수강취소]
+  courses     (READ: status 검증)
+    → enrollments (UPSERT: ON CONFLICT(course_id, learner_id)
+                    기록 없음          → INSERT
+                    cancelled_at IS NOT NULL → UPDATE SET cancelled_at = NULL, enrolled_at = NOW()
+                    cancelled_at IS NULL     → 에러 (이미 수강 중))  ← 신청/재신청
+    → enrollments (UPDATE: cancelled_at = NOW())                    ← 취소
+
+[4. Learner 대시보드]
+  enrollments (WHERE cancelled_at IS NULL)
+    → courses     (내 코스 목록)
+    → assignments (마감 임박, ORDER BY due_at ASC)
+    → submissions (최근 피드백, WHERE status = 'graded')
+  COMPUTE 진행률:
+    - 분자: COUNT(submissions WHERE status != 'resubmission_required')
+    - 분모: COUNT(assignments WHERE status = 'published' AND course_id = ?)
+
+[5. 과제 열람]
+  enrollments (READ: 수강 여부 검증)
+  assignments (READ: status = 'published')
+
+[6. 과제 제출 / 재제출]
+  assignments (READ: due_at, allow_late, allow_resubmit, status 검증)
+    → submissions (INSERT: content_text, content_link, is_late, status = 'submitted')
+    → submissions (UPDATE: content 갱신, status = 'submitted')  ← 재제출
+
+[7. 성적 & 피드백]
+  submissions JOIN assignments (READ: WHERE learner_id = ?)
+  COMPUTE 현재 성적 (채점된 과제만):
+    - 분자: SUM(score × weight) WHERE status = 'graded'
+    - 분모: SUM(weight)         WHERE status = 'graded'
+    - ※ 미제출/미채점 과제는 집계에서 제외 (0점 처리 안 함)
+
+[8. Instructor 대시보드]
+  courses     (READ: WHERE instructor_id = ?)
+  submissions (READ: COUNT WHERE status = 'submitted')           ← 채점 대기 수
+  submissions (READ: ORDER BY submitted_at DESC)                 ← 최근 제출물
+
+[9. 코스 / 과제 관리]
+  courses     (INSERT / UPDATE / status 전환: draft → published → archived)
+  assignments (INSERT / UPDATE / status 전환: draft → published → closed)
+
+[10. 채점]
+  submissions (UPDATE: score, feedback, status = 'graded',            graded_at = NOW())
+  submissions (UPDATE: feedback,          status = 'resubmission_required')
+
+[11. 운영]
+  reports      (INSERT: reporter_id, target_type, target_id, reason, content)
+  reports      (UPDATE: status, action)
+  categories   (INSERT / UPDATE: is_active)
+  difficulties (INSERT / UPDATE: is_active)
+```
+
+---
+
+## 2. ERD (개요)
+
+```
+auth.users (Supabase)
+  └─ profiles (1:1)
+       └─ terms_agreements (1:N)
+       └─ courses [instructor] (1:N)
+            └─ assignments (1:N)
+                 └─ submissions (1:N) ←─ profiles [learner]
+       └─ enrollments (N:M) ── courses
+       └─ reports [reporter] (1:N)
+
+categories  ──< courses
+difficulties ──< courses
+```
+
+---
+
+## 3. 데이터베이스 스키마
+
+### 3.1 ENUM 타입
+
+```sql
+CREATE TYPE user_role AS ENUM ('learner', 'instructor', 'operator');
+
+CREATE TYPE course_status AS ENUM ('draft', 'published', 'archived');
+
+CREATE TYPE assignment_status AS ENUM ('draft', 'published', 'closed');
+
+CREATE TYPE submission_status AS ENUM (
+  'submitted',
+  'graded',
+  'resubmission_required'
+);
+
+CREATE TYPE report_target_type AS ENUM (
+  'course',
+  'assignment',
+  'submission',
+  'user'
+);
+
+CREATE TYPE report_status AS ENUM ('received', 'investigating', 'resolved');
+
+CREATE TYPE report_action AS ENUM (
+  'warning',
+  'invalidate_submission',
+  'restrict_account'
+);
+```
+
+---
+
+### 3.2 테이블
+
+#### `profiles`
+
+Supabase `auth.users` 와 1:1 매핑. 역할 및 최소 프로필 저장.
+
+| 컬럼 | 타입 | 제약 | 설명 |
+|---|---|---|---|
+| id | UUID | PK, FK auth.users | Supabase Auth UID |
+| name | TEXT | NOT NULL | 이름 |
+| phone | TEXT | NOT NULL | 휴대폰번호 |
+| role | user_role | NOT NULL | learner \| instructor \| operator |
+| created_at | TIMESTAMPTZ | NOT NULL DEFAULT NOW() | |
+| updated_at | TIMESTAMPTZ | NOT NULL DEFAULT NOW() | |
+
+```sql
+CREATE TABLE IF NOT EXISTS profiles (
+  id         UUID      PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  name       TEXT      NOT NULL,
+  phone      TEXT      NOT NULL,
+  role       user_role NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+```
+
+---
+
+#### `terms_agreements`
+
+온보딩 시 약관 동의 이력.
+
+| 컬럼 | 타입 | 제약 | 설명 |
+|---|---|---|---|
+| id | UUID | PK | |
+| user_id | UUID | NOT NULL, FK profiles | |
+| agreed_at | TIMESTAMPTZ | NOT NULL DEFAULT NOW() | 동의 시각 |
+
+```sql
+CREATE TABLE IF NOT EXISTS terms_agreements (
+  id       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id  UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  agreed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+```
+
+---
+
+#### `categories`
+
+코스 카테고리 메타데이터. 운영자가 CRUD 관리.
+
+| 컬럼 | 타입 | 제약 | 설명 |
+|---|---|---|---|
+| id | UUID | PK | |
+| name | TEXT | NOT NULL, UNIQUE | 카테고리명 |
+| is_active | BOOLEAN | NOT NULL DEFAULT TRUE | 비활성화 시 신규 코스 선택 불가 |
+| created_at | TIMESTAMPTZ | NOT NULL DEFAULT NOW() | |
+| updated_at | TIMESTAMPTZ | NOT NULL DEFAULT NOW() | |
+
+```sql
+CREATE TABLE IF NOT EXISTS categories (
+  id         UUID    PRIMARY KEY DEFAULT gen_random_uuid(),
+  name       TEXT    NOT NULL UNIQUE,
+  is_active  BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+```
+
+---
+
+#### `difficulties`
+
+코스 난이도 메타데이터. 운영자가 CRUD 관리.
+
+| 컬럼 | 타입 | 제약 | 설명 |
+|---|---|---|---|
+| id | UUID | PK | |
+| name | TEXT | NOT NULL, UNIQUE | 난이도명 (예: 입문, 초급, 중급) |
+| is_active | BOOLEAN | NOT NULL DEFAULT TRUE | 비활성화 시 신규 코스 선택 불가 |
+| created_at | TIMESTAMPTZ | NOT NULL DEFAULT NOW() | |
+| updated_at | TIMESTAMPTZ | NOT NULL DEFAULT NOW() | |
+
+```sql
+CREATE TABLE IF NOT EXISTS difficulties (
+  id         UUID    PRIMARY KEY DEFAULT gen_random_uuid(),
+  name       TEXT    NOT NULL UNIQUE,
+  is_active  BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+```
+
+---
+
+#### `courses`
+
+강사가 개설하는 코스.
+
+| 컬럼 | 타입 | 제약 | 설명 |
+|---|---|---|---|
+| id | UUID | PK | |
+| instructor_id | UUID | NOT NULL, FK profiles | 소유 강사 |
+| title | TEXT | NOT NULL | 코스 제목 |
+| description | TEXT | | 코스 소개 |
+| category_id | UUID | FK categories, NULL 허용 | |
+| difficulty_id | UUID | FK difficulties, NULL 허용 | |
+| curriculum | TEXT | | 커리큘럼 (텍스트) |
+| status | course_status | NOT NULL DEFAULT 'draft' | draft \| published \| archived |
+| created_at | TIMESTAMPTZ | NOT NULL DEFAULT NOW() | |
+| updated_at | TIMESTAMPTZ | NOT NULL DEFAULT NOW() | |
+
+```sql
+CREATE TABLE IF NOT EXISTS courses (
+  id            UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+  instructor_id UUID         NOT NULL REFERENCES profiles(id) ON DELETE RESTRICT,
+  title         TEXT         NOT NULL,
+  description   TEXT,
+  category_id   UUID         REFERENCES categories(id) ON DELETE SET NULL,
+  difficulty_id UUID         REFERENCES difficulties(id) ON DELETE SET NULL,
+  curriculum    TEXT,
+  status        course_status NOT NULL DEFAULT 'draft',
+  created_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+  updated_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_courses_instructor_id ON courses(instructor_id);
+CREATE INDEX IF NOT EXISTS idx_courses_status        ON courses(status);
+CREATE INDEX IF NOT EXISTS idx_courses_category_id   ON courses(category_id);
+```
+
+---
+
+#### `enrollments`
+
+학습자의 코스 수강신청 기록.
+
+| 컬럼 | 타입 | 제약 | 설명 |
+|---|---|---|---|
+| id | UUID | PK | |
+| course_id | UUID | NOT NULL, FK courses | |
+| learner_id | UUID | NOT NULL, FK profiles | |
+| enrolled_at | TIMESTAMPTZ | NOT NULL DEFAULT NOW() | 신청 시각 |
+| cancelled_at | TIMESTAMPTZ | NULL 허용 | 취소 시각, NULL = 활성 수강 |
+
+- `(course_id, learner_id)` UNIQUE → 중복 신청 방지 및 UPSERT(ON CONFLICT) 지원에 필수
+- `cancelled_at IS NULL` 조건으로 활성 수강 여부 판별
+- 재신청 시 새 row INSERT 없이 기존 row UPDATE → 중복 데이터 생성 방지
+
+```sql
+CREATE TABLE IF NOT EXISTS enrollments (
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  course_id    UUID NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+  learner_id   UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  enrolled_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  cancelled_at TIMESTAMPTZ,
+  -- UPSERT 쿼리(ON CONFLICT)를 지원하기 위해 아래 복합 유니크 키 필수
+  UNIQUE(course_id, learner_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_enrollments_learner_id ON enrollments(learner_id);
+CREATE INDEX IF NOT EXISTS idx_enrollments_course_id  ON enrollments(course_id);
+```
+
+---
+
+#### `assignments`
+
+코스에 속하는 과제.
+
+| 컬럼 | 타입 | 제약 | 설명 |
+|---|---|---|---|
+| id | UUID | PK | |
+| course_id | UUID | NOT NULL, FK courses | |
+| title | TEXT | NOT NULL | 과제 제목 |
+| description | TEXT | | 과제 설명 및 요구사항 |
+| due_at | TIMESTAMPTZ | NOT NULL | 마감일 |
+| weight | NUMERIC(5,2) | NOT NULL, CHECK > 0 | 점수 비중 |
+| allow_late | BOOLEAN | NOT NULL DEFAULT FALSE | 지각 제출 허용 여부 |
+| allow_resubmit | BOOLEAN | NOT NULL DEFAULT FALSE | 재제출 허용 여부 |
+| status | assignment_status | NOT NULL DEFAULT 'draft' | draft \| published \| closed. ※ closed는 강사 수동 강제 마감 전용. 일반 마감은 `status='published' AND NOW() > due_at` 으로 판별 |
+| created_at | TIMESTAMPTZ | NOT NULL DEFAULT NOW() | |
+| updated_at | TIMESTAMPTZ | NOT NULL DEFAULT NOW() | |
+
+```sql
+CREATE TABLE IF NOT EXISTS assignments (
+  id             UUID              PRIMARY KEY DEFAULT gen_random_uuid(),
+  course_id      UUID              NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+  title          TEXT              NOT NULL,
+  description    TEXT,
+  due_at         TIMESTAMPTZ       NOT NULL,
+  weight         NUMERIC(5,2)      NOT NULL CHECK (weight > 0),
+  allow_late     BOOLEAN           NOT NULL DEFAULT FALSE,
+  allow_resubmit BOOLEAN           NOT NULL DEFAULT FALSE,
+  -- 'closed'는 강사가 수동으로 조기 종료했을 때만 사용.
+  -- 일반적인 마감은 (status='published' AND due_at < NOW()) 로 판단함.
+  status         assignment_status NOT NULL DEFAULT 'draft', -- draft | published | closed
+  created_at     TIMESTAMPTZ       NOT NULL DEFAULT NOW(),
+  updated_at     TIMESTAMPTZ       NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_assignments_course_id ON assignments(course_id);
+CREATE INDEX IF NOT EXISTS idx_assignments_status    ON assignments(status);
+CREATE INDEX IF NOT EXISTS idx_assignments_due_at    ON assignments(due_at);
+```
+
+---
+
+#### `submissions`
+
+학습자의 과제 제출물.
+
+| 컬럼 | 타입 | 제약 | 설명 |
+|---|---|---|---|
+| id | UUID | PK | |
+| assignment_id | UUID | NOT NULL, FK assignments | |
+| learner_id | UUID | NOT NULL, FK profiles | |
+| content_text | TEXT | NOT NULL | 제출 텍스트 (필수) |
+| content_link | TEXT | NULL 허용 | 제출 링크 (선택, URL) |
+| is_late | BOOLEAN | NOT NULL DEFAULT FALSE | 지각 제출 여부 |
+| status | submission_status | NOT NULL DEFAULT 'submitted' | submitted \| graded \| resubmission_required |
+| score | INTEGER | NULL 허용, CHECK 0~100 | 채점 점수 |
+| feedback | TEXT | NULL 허용 | 강사 피드백 |
+| submitted_at | TIMESTAMPTZ | NOT NULL DEFAULT NOW() | 최종 제출 시각 |
+| graded_at | TIMESTAMPTZ | NULL 허용 | 채점 시각 |
+| created_at | TIMESTAMPTZ | NOT NULL DEFAULT NOW() | |
+| updated_at | TIMESTAMPTZ | NOT NULL DEFAULT NOW() | |
+
+- `(assignment_id, learner_id)` UNIQUE → 과제당 1건, 재제출은 UPDATE
+- 재제출 시: `content_text`, `content_link`, `is_late`, `status`, `submitted_at` 갱신
+
+```sql
+CREATE TABLE IF NOT EXISTS submissions (
+  id            UUID              PRIMARY KEY DEFAULT gen_random_uuid(),
+  assignment_id UUID              NOT NULL REFERENCES assignments(id) ON DELETE CASCADE,
+  learner_id    UUID              NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  content_text  TEXT              NOT NULL,
+  content_link  TEXT,
+  is_late       BOOLEAN           NOT NULL DEFAULT FALSE,
+  status        submission_status NOT NULL DEFAULT 'submitted',
+  score         INTEGER           CHECK (score >= 0 AND score <= 100),
+  feedback      TEXT,
+  submitted_at  TIMESTAMPTZ       NOT NULL DEFAULT NOW(),
+  graded_at     TIMESTAMPTZ,
+  created_at    TIMESTAMPTZ       NOT NULL DEFAULT NOW(),
+  updated_at    TIMESTAMPTZ       NOT NULL DEFAULT NOW(),
+  UNIQUE(assignment_id, learner_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_submissions_assignment_id ON submissions(assignment_id);
+CREATE INDEX IF NOT EXISTS idx_submissions_learner_id    ON submissions(learner_id);
+CREATE INDEX IF NOT EXISTS idx_submissions_status        ON submissions(status);
+```
+
+---
+
+#### `reports`
+
+운영자 신고 접수 및 처리 이력.
+
+| 컬럼 | 타입 | 제약 | 설명 |
+|---|---|---|---|
+| id | UUID | PK | |
+| reporter_id | UUID | NOT NULL, FK profiles | 신고자 |
+| target_type | report_target_type | NOT NULL | course \| assignment \| submission \| user |
+| target_id | UUID | NOT NULL | 신고 대상 레코드 ID |
+| reason | TEXT | NOT NULL | 신고 사유 |
+| content | TEXT | NOT NULL | 신고 내용 |
+| status | report_status | NOT NULL DEFAULT 'received' | received \| investigating \| resolved |
+| action | report_action | NULL 허용 | 처리 액션 (경고/무효화/계정제한) |
+| created_at | TIMESTAMPTZ | NOT NULL DEFAULT NOW() | |
+| updated_at | TIMESTAMPTZ | NOT NULL DEFAULT NOW() | |
+
+```sql
+CREATE TABLE IF NOT EXISTS reports (
+  id          UUID               PRIMARY KEY DEFAULT gen_random_uuid(),
+  reporter_id UUID               NOT NULL REFERENCES profiles(id) ON DELETE RESTRICT,
+  target_type report_target_type NOT NULL,
+  target_id   UUID               NOT NULL,
+  reason      TEXT               NOT NULL,
+  content     TEXT               NOT NULL,
+  status      report_status      NOT NULL DEFAULT 'received',
+  action      report_action,
+  created_at  TIMESTAMPTZ        NOT NULL DEFAULT NOW(),
+  updated_at  TIMESTAMPTZ        NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_reports_status ON reports(status);
+```
+
+---
+
+## 4. updated_at 자동 갱신 트리거
+
+```sql
+CREATE OR REPLACE FUNCTION set_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_profiles_updated_at
+  BEFORE UPDATE ON profiles
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+CREATE TRIGGER trg_categories_updated_at
+  BEFORE UPDATE ON categories
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+CREATE TRIGGER trg_difficulties_updated_at
+  BEFORE UPDATE ON difficulties
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+CREATE TRIGGER trg_courses_updated_at
+  BEFORE UPDATE ON courses
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+CREATE TRIGGER trg_assignments_updated_at
+  BEFORE UPDATE ON assignments
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+CREATE TRIGGER trg_submissions_updated_at
+  BEFORE UPDATE ON submissions
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+CREATE TRIGGER trg_reports_updated_at
+  BEFORE UPDATE ON reports
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+```
+
+---
+
+## 5. 테이블 요약
+
+| 테이블 | 역할 |
+|---|---|
+| `profiles` | 유저 역할 및 최소 프로필 |
+| `terms_agreements` | 온보딩 약관 동의 이력 |
+| `categories` | 코스 카테고리 메타데이터 (운영자 관리) |
+| `difficulties` | 코스 난이도 메타데이터 (운영자 관리) |
+| `courses` | 강사 개설 코스 |
+| `enrollments` | 학습자 수강신청 기록 |
+| `assignments` | 코스별 과제 |
+| `submissions` | 학습자 제출물 및 채점 결과 |
+| `reports` | 운영자 신고 접수/처리 |
+</file>
+
+<file path="plan.md">
+# Implementation Plan
+
+> 기반 문서: `prd.md`, `workflow.md`, `database.md`
+> 코드베이스 컨벤션: `.ruler/AGENTS.md`
+
+---
+
+## 1. 개요
+
+### 공통(Shared) 모듈
+
+| 모듈 | 위치 | 설명 |
+|---|---|---|
+| `withAuth` | `src/backend/middleware/auth.ts` | 쿠키 JWT 검증 → `currentUser`(id, role)를 Hono context에 주입하는 미들웨어 |
+| `requireRole` | `src/backend/guards/role.ts` | Hono 라우트 레벨 역할 가드 팩토리. 예: `requireRole('instructor')` |
+| `useRoleGuard` | `src/hooks/useRoleGuard.ts` | 클라이언트 역할 불일치 시 리다이렉트하는 범용 훅 |
+| `StatusBadge` | `src/components/status-badge.tsx` | course/assignment/submission 상태 enum을 배지로 렌더링하는 범용 UI |
+
+### Feature 모듈 (신규, src/features/)
+
+| 모듈 | 위치 | API Prefix | 담당 유저플로우 |
+|---|---|---|---|
+| `profiles` | `src/features/profiles/` | `/api/profiles` | §1 역할 선택 & 온보딩 |
+| `courses` | `src/features/courses/` | `/api/courses` | §2 코스 탐색, §8 코스 관리 |
+| `enrollments` | `src/features/enrollments/` | `/api/enrollments` | §2 수강신청/취소/재신청 |
+| `assignments` | `src/features/assignments/` | `/api/assignments` | §4 과제 열람, §9 과제 관리, §11 마감 |
+| `submissions` | `src/features/submissions/` | `/api/submissions` | §5 제출/재제출, §10 채점/피드백 |
+| `learner` | `src/features/learner/` | `/api/learner` | §3 대시보드, §6 성적/피드백 |
+| `instructor` | `src/features/instructor/` | `/api/instructor` | §7 강사 대시보드 |
+| `reports` | `src/features/reports/` | `/api/reports` | §12 신고 접수·처리 |
+| `metadata` | `src/features/metadata/` | `/api/metadata` | §12 카테고리·난이도 관리 |
+
+### 신규 페이지 (src/app/)
+
+| 경로 | 파일 위치 | 주요 feature |
+|---|---|---|
+| `/onboarding` | `src/app/onboarding/page.tsx` | profiles |
+| `/courses` | `src/app/courses/page.tsx` | courses |
+| `/courses/[courseId]/about` | `src/app/courses/[courseId]/about/page.tsx` | courses |
+| `/courses/[courseId]/curriculum` | `src/app/courses/[courseId]/curriculum/page.tsx` | courses |
+| `/courses/[courseId]/enroll` | `src/app/courses/[courseId]/enroll/page.tsx` | enrollments |
+| `/courses/my` | `src/app/courses/my/page.tsx` | learner |
+| `/courses/my/[courseId]/assignments/[assignmentId]` | `src/app/courses/my/[courseId]/assignments/[assignmentId]/page.tsx` | assignments |
+| `/courses/my/[courseId]/assignments/[assignmentId]/submit` | `.../submit/page.tsx` | submissions |
+| `/courses/my/[courseId]/assignments/[assignmentId]/feedback` | `.../feedback/page.tsx` | submissions |
+| `/courses/my/[courseId]/grades` | `src/app/courses/my/[courseId]/grades/page.tsx` | learner |
+| `/instructor/dashboard` | `src/app/instructor/dashboard/page.tsx` | instructor |
+| `/instructor/courses/new` | `src/app/instructor/courses/new/page.tsx` | courses |
+| `/instructor/courses/[courseId]/edit` | `src/app/instructor/courses/[courseId]/edit/page.tsx` | courses |
+| `/instructor/assignments/new` | `src/app/instructor/assignments/new/page.tsx` | assignments |
+| `/instructor/assignments/[assignmentId]/submissions` | `.../submissions/page.tsx` | submissions |
+
+---
+
+## 2. Diagram
+
+### 2.1 전체 아키텍처
+
+```mermaid
+flowchart TD
+    subgraph client["Client (Browser)"]
+        direction TB
+        PAGES["Pages\n(src/app/)"]
+        HOOKS["Feature Hooks\n(React Query)"]
+        COMP["Feature Components\n('use client')"]
+        PAGES --> COMP --> HOOKS
+    end
+
+    subgraph server["Server (Hono via Next.js Route Handler)"]
+        direction TB
+        MW["Middleware Pipeline\nerrorBoundary → withAppContext\n→ withSupabase → withAuth"]
+        ROUTES["Feature Routes\n/api/profiles, /api/courses, ..."]
+        SERVICES["Feature Services\n(Supabase queries + 비즈니스 로직)"]
+        MW --> ROUTES --> SERVICES
+    end
+
+    subgraph database["Supabase DB"]
+        direction LR
+        T1[(profiles\nterms_agreements)]
+        T2[(courses\ncategories\ndifficulties)]
+        T3[(enrollments)]
+        T4[(assignments)]
+        T5[(submissions)]
+        T6[(reports)]
+    end
+
+    HOOKS -- "HTTP (apiClient)" --> MW
+    SERVICES -- "SQL" --> T1
+    SERVICES -- "SQL" --> T2
+    SERVICES -- "SQL" --> T3
+    SERVICES -- "SQL" --> T4
+    SERVICES -- "SQL" --> T5
+    SERVICES -- "SQL" --> T6
+```
+
+### 2.2 Feature 의존성
+
+```mermaid
+graph LR
+    subgraph shared["공통 모듈"]
+        AUTH_MW["withAuth\nmiddleware"]
+        REQ_ROLE["requireRole\nguard"]
+        ROLE_GUARD["useRoleGuard\nhook"]
+    end
+
+    subgraph features["Feature Modules"]
+        PROFILES["profiles"]
+        META["metadata"]
+        COURSES["courses"]
+        ENROLL["enrollments"]
+        ASSIGN["assignments"]
+        SUBMIT["submissions"]
+        LEARNER["learner"]
+        INSTRUCTOR["instructor"]
+        REPORTS["reports"]
+    end
+
+    META -->|카테고리·난이도 제공| COURSES
+    PROFILES -->|instructor_id 제공| COURSES
+    COURSES -->|course_id 제공| ENROLL
+    COURSES -->|course_id 제공| ASSIGN
+    ASSIGN -->|assignment_id 제공| SUBMIT
+
+    ENROLL -->|수강 목록| LEARNER
+    ASSIGN -->|과제 목록| LEARNER
+    SUBMIT -->|성적·피드백| LEARNER
+
+    COURSES -->|코스 목록| INSTRUCTOR
+    SUBMIT -->|제출물 목록| INSTRUCTOR
+
+    AUTH_MW -.->|currentUser 주입| PROFILES
+    AUTH_MW -.->|currentUser 주입| COURSES
+    AUTH_MW -.->|currentUser 주입| ENROLL
+    AUTH_MW -.->|currentUser 주입| ASSIGN
+    AUTH_MW -.->|currentUser 주입| SUBMIT
+    AUTH_MW -.->|currentUser 주입| LEARNER
+    AUTH_MW -.->|currentUser 주입| INSTRUCTOR
+    AUTH_MW -.->|currentUser 주입| REPORTS
+    AUTH_MW -.->|currentUser 주입| META
+
+    REQ_ROLE -.->|역할 가드| COURSES
+    REQ_ROLE -.->|역할 가드| ASSIGN
+    REQ_ROLE -.->|역할 가드| SUBMIT
+    REQ_ROLE -.->|역할 가드| INSTRUCTOR
+    REQ_ROLE -.->|역할 가드| REPORTS
+    REQ_ROLE -.->|역할 가드| META
+```
+
+### 2.3 API 라우트 맵
+
+```mermaid
+graph LR
+    subgraph profiles_api["/api/profiles"]
+        P1["POST /api/profiles/onboarding"]
+        P2["GET /api/profiles/me"]
+    end
+    subgraph courses_api["/api/courses"]
+        C1["GET /api/courses"]
+        C2["GET /api/courses/:id"]
+        C3["POST /api/courses"]
+        C4["PUT /api/courses/:id"]
+        C5["PATCH /api/courses/:id/status"]
+    end
+    subgraph enrollments_api["/api/enrollments"]
+        E1["POST /api/enrollments"]
+        E2["DELETE /api/enrollments/:courseId"]
+    end
+    subgraph assignments_api["/api/assignments"]
+        A1["GET /api/assignments?courseId="]
+        A2["GET /api/assignments/:id"]
+        A3["POST /api/assignments"]
+        A4["PUT /api/assignments/:id"]
+        A5["PATCH /api/assignments/:id/status"]
+    end
+    subgraph submissions_api["/api/submissions"]
+        S1["POST /api/submissions"]
+        S2["PUT /api/submissions/:id"]
+        S3["PATCH /api/submissions/:id/grade"]
+        S4["GET /api/assignments/:id/submissions"]
+    end
+    subgraph learner_api["/api/learner"]
+        L1["GET /api/learner/dashboard"]
+        L2["GET /api/learner/courses/:id/grades"]
+    end
+    subgraph instructor_api["/api/instructor"]
+        I1["GET /api/instructor/dashboard"]
+    end
+    subgraph reports_api["/api/reports"]
+        R1["POST /api/reports"]
+        R2["GET /api/reports"]
+        R3["PATCH /api/reports/:id"]
+    end
+    subgraph metadata_api["/api/metadata"]
+        M1["GET /api/metadata/categories"]
+        M2["POST /api/metadata/categories"]
+        M3["PATCH /api/metadata/categories/:id"]
+        M4["GET /api/metadata/difficulties"]
+        M5["POST /api/metadata/difficulties"]
+        M6["PATCH /api/metadata/difficulties/:id"]
+    end
+```
+
+---
+
+## 3. Implementation Plan
+
+---
+
+### [Shared] withAuth + requireRole
+
+> 모든 보호 라우트의 전제 조건
+
+**파일 구조:**
+```
+src/backend/
+├── middleware/
+│   └── auth.ts              ← 신규: JWT 검증 + currentUser 주입
+├── guards/
+│   └── role.ts              ← 신규: requireRole() 팩토리
+└── hono/
+    └── context.ts           ← 수정: AppVariables에 currentUser 추가
+```
+
+**Context 수정 (`src/backend/hono/context.ts`):**
+```typescript
+// AppVariables에 추가
+currentUser?: {
+  id: string;
+  role: 'learner' | 'instructor' | 'operator';
+};
+```
+
+**withAuth 미들웨어 동작:**
+1. `Authorization: Bearer <token>` 헤더 또는 `sb-access-token` 쿠키에서 JWT 추출
+2. `supabase.auth.getUser(token)` 호출
+3. `profiles` 테이블에서 역할(role) 조회
+4. `c.set('currentUser', { id, role })` 주입
+5. 인증 실패 시 401 반환
+
+**requireRole 동작:**
+```typescript
+// 사용 예: app.post('/api/courses', requireRole('instructor'), handler)
+export const requireRole = (role: UserRole) => createMiddleware(...)
+```
+
+**Unit Tests (auth.ts):**
+```
+describe('withAuth')
+  ✓ 유효한 JWT → currentUser 주입
+  ✗ 토큰 없음 → 401 UNAUTHORIZED
+  ✗ 만료된 토큰 → 401 UNAUTHORIZED
+  ✗ 프로필 미존재 → 403 PROFILE_REQUIRED (온보딩 유도)
+
+describe('requireRole')
+  ✓ 일치하는 역할 → next() 진행
+  ✗ 역할 불일치 → 403 FORBIDDEN
+  ✗ currentUser 없음 (withAuth 미적용) → 500
+```
+
+**QA Sheet (src/hooks/useRoleGuard.ts):**
+| 시나리오 | 사전 조건 | 단계 | 기대 결과 |
+|---|---|---|---|
+| Learner가 강사 경로 접근 | role=learner 로그인 | /instructor/dashboard 직접 접근 | /courses/my 로 리다이렉트 |
+| 비로그인 보호 경로 접근 | 비로그인 상태 | /courses/my 접근 | /login?redirectedFrom=/courses/my |
+| 온보딩 미완료 접근 | 로그인, 프로필 없음 | 어느 경로든 접근 | /onboarding 로 리다이렉트 |
+
+---
+
+### [Feature] profiles
+
+> 유저플로우 §1 역할 선택 & 온보딩
+
+**파일 구조:**
+```
+src/features/profiles/
+├── backend/
+│   ├── route.ts    ← POST /api/profiles/onboarding, GET /api/profiles/me
+│   ├── service.ts  ← createProfile(), getMyProfile()
+│   ├── schema.ts   ← OnboardingRequestSchema, ProfileResponseSchema
+│   └── error.ts    ← PROFILE_ALREADY_EXISTS, INVALID_ROLE
+├── components/
+│   └── onboarding-form.tsx   ← 역할 선택 + 이름·휴대폰 입력 + 약관 동의
+├── hooks/
+│   └── useOnboardingMutation.ts
+└── lib/
+    └── dto.ts
+```
+
+**API 엔드포인트:**
+| Method | Path | 설명 | 권한 |
+|---|---|---|---|
+| `POST` | `/api/profiles/onboarding` | 프로필 생성 + 약관 이력 저장 | 로그인(withAuth, 프로필 없음) |
+| `GET` | `/api/profiles/me` | 내 프로필 조회 | withAuth |
+
+**Backend Unit Tests:**
+```
+describe('createProfile')
+  ✓ 신규 유저: profiles INSERT + terms_agreements INSERT
+  ✓ role=learner → 카탈로그 리다이렉트 경로 반환
+  ✓ role=instructor → 대시보드 리다이렉트 경로 반환
+  ✗ 이미 프로필 존재 → failure(409, PROFILE_ALREADY_EXISTS)
+  ✗ role 값 없음 → failure(400, INVALID_ROLE)
+  ✗ name 빈 값 → failure(400, VALIDATION_ERROR)
+
+describe('getMyProfile')
+  ✓ 존재하는 프로필 반환
+  ✗ 프로필 없음 → failure(404, PROFILE_NOT_FOUND)
+```
+
+**Frontend QA Sheet:**
+| 시나리오 | 사전 조건 | 단계 | 기대 결과 |
+|---|---|---|---|
+| Learner 온보딩 완료 | 회원가입 후 /onboarding 진입 | Learner 선택 → 이름·전화번호 입력 → 약관 동의 → 제출 | /courses 로 이동 |
+| Instructor 온보딩 완료 | 회원가입 후 /onboarding 진입 | Instructor 선택 → 입력 → 제출 | /instructor/dashboard 로 이동 |
+| 필수 항목 누락 | /onboarding | 이름 없이 제출 | 이름 필드에 에러 메시지 표시, 제출 차단 |
+| 약관 미동의 | /onboarding | 약관 미체크 후 제출 | 약관 동의 에러 표시, 제출 차단 |
+| 중복 온보딩 시도 | 이미 프로필 존재 | /onboarding 재접근 | /courses 또는 /instructor/dashboard 로 리다이렉트 |
+
+---
+
+### [Feature] courses
+
+> 유저플로우 §2 코스 탐색, §8 코스 관리
+
+**파일 구조:**
+```
+src/features/courses/
+├── backend/
+│   ├── route.ts    ← GET /api/courses, GET /api/courses/:id, POST, PUT, PATCH status
+│   ├── service.ts  ← getCourseCatalog(), getCourseDetail(), createCourse(), updateCourse(), updateCourseStatus()
+│   ├── schema.ts   ← CourseCatalogQuerySchema, CourseResponseSchema, CreateCourseSchema
+│   └── error.ts    ← COURSE_NOT_FOUND, NOT_COURSE_OWNER, INVALID_STATUS_TRANSITION
+├── components/
+│   ├── course-catalog.tsx        ← 검색/필터/정렬 + 카드 목록
+│   ├── course-filter-bar.tsx     ← 카테고리·난이도·정렬 셀렉터
+│   ├── course-card.tsx           ← 개별 코스 카드
+│   ├── course-detail.tsx         ← 소개·커리큘럼·강사 정보
+│   ├── course-form.tsx           ← 강사 생성/수정 폼
+│   └── course-status-control.tsx ← 강사 상태 전환 버튼
+├── hooks/
+│   ├── useCourseCatalogQuery.ts
+│   ├── useCourseDetailQuery.ts
+│   ├── useCreateCourseMutation.ts
+│   ├── useUpdateCourseMutation.ts
+│   └── useUpdateCourseStatusMutation.ts
+└── lib/
+    └── dto.ts
+```
+
+**API 엔드포인트:**
+| Method | Path | 설명 | 권한 |
+|---|---|---|---|
+| `GET` | `/api/courses` | 카탈로그 목록 (검색·필터·정렬) | public |
+| `GET` | `/api/courses/:id` | 코스 상세 | public |
+| `POST` | `/api/courses` | 코스 생성 (draft) | instructor |
+| `PUT` | `/api/courses/:id` | 코스 수정 | instructor + owner |
+| `PATCH` | `/api/courses/:id/status` | 상태 전환 | instructor + owner |
+
+**Backend Unit Tests:**
+```
+describe('getCourseCatalog')
+  ✓ status=published인 코스만 반환
+  ✓ 검색어로 title ILIKE 필터
+  ✓ category_id 필터
+  ✓ difficulty_id 필터
+  ✓ 최신순(created_at DESC) 정렬
+  ✓ 인기순(enrollments count DESC) 정렬
+  ✓ 결과 없을 시 빈 배열 반환
+
+describe('createCourse')
+  ✓ 정상 생성 → status=draft, instructor_id=currentUser.id
+  ✗ role≠instructor → failure(403, FORBIDDEN)
+
+describe('updateCourseStatus')
+  ✓ draft → published
+  ✓ published → archived
+  ✗ archived → published → failure(400, INVALID_STATUS_TRANSITION)
+  ✗ 소유자 아닌 경우 → failure(403, NOT_COURSE_OWNER)
+```
+
+**Frontend QA Sheet:**
+| 시나리오 | 사전 조건 | 단계 | 기대 결과 |
+|---|---|---|---|
+| 카탈로그 기본 진입 | 로그인, published 코스 3개 | /courses 접근 | 코스 카드 3개 표시 |
+| 키워드 검색 | 카탈로그 표시 중 | 검색창에 "React" 입력 | "React" 포함 코스만 표시 |
+| 카테고리 필터 | 카탈로그 표시 중 | 카테고리 "웹개발" 선택 | 해당 카테고리 코스만 표시 |
+| 코스 상세 진입 | 카탈로그 표시 중 | 코스 카드 클릭 | about 페이지 진입, 소개·커리큘럼·강사 표시 |
+| 강사 코스 생성 | role=instructor | /instructor/courses/new → 폼 작성 → 제출 | 생성 완료, 목록에 draft 상태로 표시 |
+| 강사 코스 published 전환 | draft 코스 존재 | 코스 편집 → "게시" 버튼 클릭 | status=published, 카탈로그에 노출 |
+| 강사 코스 archived 전환 | published 코스 존재 | "종료" 버튼 클릭 | status=archived, 카탈로그에서 미표시, 신규 수강 불가 |
+
+---
+
+### [Feature] enrollments
+
+> 유저플로우 §2 수강신청/취소/재신청
+
+**파일 구조:**
+```
+src/features/enrollments/
+├── backend/
+│   ├── route.ts    ← POST /api/enrollments, DELETE /api/enrollments/:courseId
+│   ├── service.ts  ← enrollCourse(), cancelEnrollment()
+│   ├── schema.ts   ← EnrollRequestSchema, EnrollmentResponseSchema
+│   └── error.ts    ← ALREADY_ENROLLED, NOT_ENROLLED, COURSE_NOT_PUBLISHED
+├── components/
+│   └── enroll-button.tsx   ← 신청/취소/재신청 상태에 따른 버튼 렌더링
+├── hooks/
+│   ├── useEnrollmentStatusQuery.ts    ← 현재 수강 상태 조회
+│   ├── useEnrollMutation.ts
+│   └── useCancelEnrollmentMutation.ts
+└── lib/
+    └── dto.ts
+```
+
+**API 엔드포인트:**
+| Method | Path | 설명 | 권한 |
+|---|---|---|---|
+| `POST` | `/api/enrollments` | 수강신청 (신규 or 재신청 UPSERT) | learner |
+| `DELETE` | `/api/enrollments/:courseId` | 수강취소 | learner + 수강 중 |
+
+**Backend Unit Tests:**
+```
+describe('enrollCourse')
+  ✓ 기록 없음 → enrollments INSERT (신규 신청)
+  ✓ cancelled_at IS NOT NULL → UPDATE(cancelled_at=NULL, enrolled_at=NOW()) (재신청)
+  ✗ cancelled_at IS NULL (이미 활성) → failure(409, ALREADY_ENROLLED)
+  ✗ course.status ≠ published → failure(400, COURSE_NOT_PUBLISHED)
+  ✗ role≠learner → failure(403, FORBIDDEN)
+
+describe('cancelEnrollment')
+  ✓ 활성 수강 → UPDATE(cancelled_at=NOW())
+  ✗ 수강 이력 없음 → failure(404, NOT_ENROLLED)
+  ✗ 이미 취소된 수강 → failure(400, ALREADY_CANCELLED)
+```
+
+**Frontend QA Sheet:**
+| 시나리오 | 사전 조건 | 단계 | 기대 결과 |
+|---|---|---|---|
+| 최초 수강신청 | role=learner, published 코스 | 코스 상세 → "수강신청" 클릭 | 버튼 "수강취소"로 변경, 내 코스에 추가 |
+| 수강취소 | 활성 수강 중 | "수강취소" 클릭 | 버튼 "재신청"으로 변경, 내 코스에서 제거 |
+| 재신청 | 취소 이력 존재 | "재신청" 클릭 | 버튼 "수강취소"로 변경, 내 코스에 재추가 |
+| archived 코스 신청 시도 | archived 코스 | 수강신청 버튼 클릭 | 에러 토스트 표시, 신청 실패 |
+| 강사 계정 신청 시도 | role=instructor | 수강신청 버튼 클릭 | 403 에러 토스트 표시 |
+
+---
+
+### [Feature] assignments
+
+> 유저플로우 §4 과제 열람, §9 과제 관리, §11 게시/마감
+
+**파일 구조:**
+```
+src/features/assignments/
+├── backend/
+│   ├── route.ts    ← GET list, GET :id, POST, PUT :id, PATCH :id/status
+│   ├── service.ts  ← getAssignmentList(), getAssignmentDetail(), createAssignment(), updateAssignment(), updateAssignmentStatus()
+│   ├── schema.ts   ← AssignmentListQuerySchema, AssignmentResponseSchema, CreateAssignmentSchema
+│   └── error.ts    ← ASSIGNMENT_NOT_FOUND, NOT_ASSIGNMENT_OWNER, INVALID_STATUS_TRANSITION, SUBMISSION_BLOCKED
+├── components/
+│   ├── assignment-list.tsx         ← 과제 목록 (학습자/강사 공통)
+│   ├── assignment-detail.tsx       ← 과제 상세 (설명·마감·비중·정책)
+│   ├── assignment-form.tsx         ← 강사 생성/수정 폼
+│   ├── assignment-status-badge.tsx ← draft/published/closed 배지
+│   └── assignment-status-control.tsx ← 강사 상태 전환 버튼
+├── hooks/
+│   ├── useAssignmentListQuery.ts
+│   ├── useAssignmentDetailQuery.ts
+│   ├── useCreateAssignmentMutation.ts
+│   ├── useUpdateAssignmentMutation.ts
+│   └── useUpdateAssignmentStatusMutation.ts
+└── lib/
+    └── dto.ts
+```
+
+**API 엔드포인트:**
+| Method | Path | 설명 | 권한 |
+|---|---|---|---|
+| `GET` | `/api/assignments?courseId=` | 과제 목록 조회 | withAuth + 수강 여부 검증 |
+| `GET` | `/api/assignments/:id` | 과제 상세 | withAuth + 수강 여부 검증 |
+| `POST` | `/api/assignments` | 과제 생성 | instructor + owner |
+| `PUT` | `/api/assignments/:id` | 과제 수정 | instructor + owner |
+| `PATCH` | `/api/assignments/:id/status` | 상태 전환 | instructor + owner |
+
+**Backend Unit Tests:**
+```
+describe('getAssignmentList')
+  ✓ learner: status=published 과제만 반환
+  ✓ instructor(소유자): 전체 상태(draft/published/closed) 반환
+  ✗ 수강 중이 아닌 learner → failure(403, NOT_ENROLLED)
+
+describe('getAssignmentDetail')
+  ✓ published 과제 반환
+  ✗ draft 과제를 learner 조회 → failure(403, ASSIGNMENT_NOT_PUBLISHED)
+  ✗ 수강 중이 아닌 learner → failure(403, NOT_ENROLLED)
+
+describe('createAssignment')
+  ✓ 정상 생성 → status=draft
+  ✗ 소유하지 않은 courseId → failure(403, NOT_COURSE_OWNER)
+
+describe('updateAssignmentStatus')
+  ✓ draft → published
+  ✓ published → closed (수동 강제 마감)
+  ✗ closed → published → failure(400, INVALID_STATUS_TRANSITION)
+  ✗ 소유자 아닌 경우 → failure(403, NOT_ASSIGNMENT_OWNER)
+```
+
+**Frontend QA Sheet:**
+| 시나리오 | 사전 조건 | 단계 | 기대 결과 |
+|---|---|---|---|
+| 과제 목록 진입 | 수강 중, published 과제 2개 | /courses/my/[id]/assignments | 과제 카드 2개 표시 |
+| closed 과제 진입 | status=closed (또는 due_at 경과) | 과제 클릭 | "제출 마감" 표시, 제출 버튼 비활성화 |
+| 강사 과제 생성 | role=instructor | /instructor/assignments/new → 폼 작성 → 제출 | 목록에 draft 상태 표시 |
+| 강사 과제 게시 | draft 과제 존재 | "게시" 클릭 | status=published, 학습자 화면에 노출 |
+| 강사 수동 마감 | published 과제 존재 | "마감" 클릭 | status=closed, 학습자 제출 버튼 비활성화 |
+
+---
+
+### [Feature] submissions
+
+> 유저플로우 §5 제출/재제출, §10 채점/피드백
+
+**파일 구조:**
+```
+src/features/submissions/
+├── backend/
+│   ├── route.ts    ← POST, PUT :id (재제출), PATCH :id/grade, GET assignments/:id/submissions
+│   ├── service.ts  ← submitAssignment(), resubmitAssignment(), gradeSubmission(), getSubmissionList()
+│   ├── schema.ts   ← SubmitRequestSchema, GradeRequestSchema, SubmissionResponseSchema
+│   └── error.ts    ← SUBMISSION_NOT_FOUND, LATE_SUBMISSION_BLOCKED, RESUBMIT_NOT_ALLOWED, INVALID_SCORE
+├── components/
+│   ├── submission-form.tsx        ← text + link 입력 폼 (제출/재제출 공통)
+│   ├── submission-status.tsx      ← submitted/graded/resubmission_required 상태 표시
+│   ├── feedback-view.tsx          ← 학습자: 점수·피드백·is_late 표시
+│   ├── grade-form.tsx             ← 강사: 점수·피드백·재제출요청 폼
+│   └── submission-table.tsx       ← 강사: 제출물 테이블 (필터: 미채점/지각/재제출요청)
+├── hooks/
+│   ├── useSubmitMutation.ts
+│   ├── useResubmitMutation.ts
+│   ├── useGradeMutation.ts
+│   ├── useMySubmissionQuery.ts        ← 학습자: 내 제출 상태 조회
+│   └── useSubmissionListQuery.ts      ← 강사: 제출물 목록 조회
+└── lib/
+    └── dto.ts
+```
+
+**API 엔드포인트:**
+| Method | Path | 설명 | 권한 |
+|---|---|---|---|
+| `POST` | `/api/submissions` | 과제 제출 | learner + 수강 중 |
+| `PUT` | `/api/submissions/:id` | 재제출 | learner + allow_resubmit=true |
+| `PATCH` | `/api/submissions/:id/grade` | 채점/피드백/재제출요청 | instructor + owner |
+| `GET` | `/api/assignments/:id/submissions` | 제출물 목록 (강사) | instructor + owner |
+
+**Backend Unit Tests:**
+```
+describe('submitAssignment')
+  ✓ 마감 전 → status=submitted, is_late=false
+  ✓ 마감 후 + allow_late=true → status=submitted, is_late=true
+  ✗ 마감 후 + allow_late=false → failure(400, LATE_SUBMISSION_BLOCKED)
+  ✗ assignment.status=closed → failure(400, SUBMISSION_BLOCKED)
+  ✗ 이미 제출 + allow_resubmit=false → failure(409, ALREADY_SUBMITTED)
+  ✗ content_text 빈 값 → failure(400, VALIDATION_ERROR)
+  ✗ 수강 중이 아닌 learner → failure(403, NOT_ENROLLED)
+
+describe('resubmitAssignment')
+  ✓ allow_resubmit=true + status=resubmission_required → UPDATE(content, submitted_at, status=submitted)
+  ✗ allow_resubmit=false → failure(400, RESUBMIT_NOT_ALLOWED)
+  ✗ status≠resubmission_required → failure(400, RESUBMIT_NOT_REQUESTED)
+  ✗ assignment 마감 상태 → failure(400, SUBMISSION_BLOCKED)
+
+describe('gradeSubmission')
+  ✓ 점수 입력 → status=graded, graded_at=NOW()
+  ✓ 재제출 요청 → status=resubmission_required, feedback 저장
+  ✗ score > 100 또는 < 0 → failure(400, INVALID_SCORE)
+  ✗ feedback 없음 → failure(400, FEEDBACK_REQUIRED)
+  ✗ 소유하지 않은 과제 → failure(403, NOT_ASSIGNMENT_OWNER)
+```
+
+**Frontend QA Sheet:**
+| 시나리오 | 사전 조건 | 단계 | 기대 결과 |
+|---|---|---|---|
+| 정상 제출 | 수강 중, 마감 전, 미제출 | submit 페이지 → 텍스트 입력 → 제출 | 상태 "제출됨"으로 변경 |
+| 지각 제출 (허용) | allow_late=true, 마감 후 | 텍스트 입력 → 제출 | 상태 "제출됨 (지각)" 표시 |
+| 지각 제출 (차단) | allow_late=false, 마감 후 | submit 페이지 접근 | 제출 버튼 비활성화, 마감 안내 메시지 |
+| 재제출 요청 수신 | 강사가 resubmission_required 설정 | feedback 페이지 접근 | "재제출 요청" 상태 + 피드백 표시, 재제출 버튼 활성화 |
+| 재제출 완료 | resubmission_required 상태 | submit 페이지 → 재제출 | 상태 "제출됨"으로 변경 |
+| 강사 채점 | role=instructor | submissions 테이블 → 제출물 선택 → 점수·피드백 입력 → 채점 | 상태 "채점완료", 학습자 feedback 페이지에 반영 |
+| 강사 재제출 요청 | role=instructor | 점수 미입력 → "재제출 요청" 클릭 + 피드백 입력 | 상태 "재제출요청", 학습자에게 반영 |
+| 피드백 없는 채점 시도 | role=instructor | 피드백 빈칸으로 채점 제출 | 피드백 필수 에러 표시, 제출 차단 |
+
+---
+
+### [Feature] learner
+
+> 유저플로우 §3 대시보드, §6 성적/피드백
+
+**파일 구조:**
+```
+src/features/learner/
+├── backend/
+│   ├── route.ts    ← GET /api/learner/dashboard, GET /api/learner/courses/:id/grades
+│   ├── service.ts  ← getLearnerDashboard(), getCourseGrades()
+│   ├── schema.ts   ← DashboardResponseSchema, GradesResponseSchema
+│   └── error.ts    ← LEARNER_NOT_FOUND
+├── components/
+│   ├── learner-dashboard.tsx      ← 내 코스 + 진행률 + 마감 임박 + 최근 피드백
+│   ├── course-progress-card.tsx   ← 코스별 진행률 카드
+│   ├── upcoming-assignments.tsx   ← 마감 임박 과제 목록
+│   ├── recent-feedback.tsx        ← 최근 피드백 요약
+│   └── grades-view.tsx            ← 과제별 점수 + 현재 성적(가중 평균)
+├── hooks/
+│   ├── useLearnerDashboardQuery.ts
+│   └── useCourseGradesQuery.ts
+└── lib/
+    └── dto.ts
+```
+
+**API 엔드포인트:**
+| Method | Path | 설명 | 권한 |
+|---|---|---|---|
+| `GET` | `/api/learner/dashboard` | 내 코스·진행률·마감임박·최근피드백 | learner |
+| `GET` | `/api/learner/courses/:id/grades` | 코스별 현재 성적 (채점된 과제 기준) | learner + 수강 중 |
+
+**Backend Unit Tests:**
+```
+describe('getLearnerDashboard')
+  ✓ cancelled_at IS NULL인 수강 코스만 반환
+  ✓ 진행률: COUNT(status≠resubmission_required) / COUNT(status=published assignments)
+  ✓ 마감 임박: due_at 오름차순, status=published, NOW() < due_at
+  ✓ 최근 피드백: status=graded, graded_at 내림차순
+  ✓ 수강 코스 없을 시 빈 상태 반환
+
+describe('getCourseGrades')
+  ✓ 채점된(graded) 과제의 score × weight 합산
+  ✓ 현재 성적: SUM(score×weight) / SUM(weight) (graded만)
+  ✓ 미채점 과제 집계 제외 (0점 처리 안 함)
+  ✓ 채점된 과제 없을 시 null 반환
+  ✗ 수강 중이 아닌 경우 → failure(403, NOT_ENROLLED)
+```
+
+**Frontend QA Sheet:**
+| 시나리오 | 사전 조건 | 단계 | 기대 결과 |
+|---|---|---|---|
+| 대시보드 기본 표시 | 수강 코스 2개, 각 과제 있음 | /courses/my 접근 | 코스 카드 2개 + 진행률 표시 |
+| 진행률 계산 | 과제 4개 중 2개 graded | 대시보드 접근 | 진행률 50% 표시 |
+| 마감 임박 과제 | 24시간 내 마감 과제 존재 | 대시보드 접근 | "마감 임박" 섹션에 해당 과제 표시 |
+| 성적 페이지 | 채점된 과제 2개 | /courses/my/[id]/grades | 과제별 점수 + 현재 성적(가중 평균) 표시 |
+| 미채점 과제 성적 표시 | 과제 3개, 채점 1개 | grades 페이지 | 미채점 과제는 "-" 표시, 현재 성적은 채점된 1개 기준 계산 |
+| 수강 없는 대시보드 | 수강 코스 0개 | /courses/my 접근 | 빈 상태 + "코스 탐색" 버튼 표시 |
+
+---
+
+### [Feature] instructor
+
+> 유저플로우 §7 강사 대시보드
+
+**파일 구조:**
+```
+src/features/instructor/
+├── backend/
+│   ├── route.ts    ← GET /api/instructor/dashboard
+│   ├── service.ts  ← getInstructorDashboard()
+│   ├── schema.ts   ← InstructorDashboardResponseSchema
+│   └── error.ts    ← INSTRUCTOR_NOT_FOUND
+├── components/
+│   ├── instructor-dashboard.tsx   ← 내 코스 목록 + 채점 대기 수 + 최근 제출물
+│   ├── pending-grade-summary.tsx  ← 채점 대기 수 요약
+│   └── recent-submissions-list.tsx ← 최근 제출물 목록
+├── hooks/
+│   └── useInstructorDashboardQuery.ts
+└── lib/
+    └── dto.ts
+```
+
+**API 엔드포인트:**
+| Method | Path | 설명 | 권한 |
+|---|---|---|---|
+| `GET` | `/api/instructor/dashboard` | 내 코스·채점대기수·최근제출물 | instructor |
+
+**Backend Unit Tests:**
+```
+describe('getInstructorDashboard')
+  ✓ instructor_id로 내 코스 목록 반환 (모든 status)
+  ✓ 채점 대기 수: submissions.status=submitted COUNT
+  ✓ 최근 제출물: submitted_at DESC 상위 10건
+  ✓ 코스 없을 시 빈 상태 반환
+  ✗ role≠instructor → failure(403, FORBIDDEN)
+```
+
+**Frontend QA Sheet:**
+| 시나리오 | 사전 조건 | 단계 | 기대 결과 |
+|---|---|---|---|
+| 대시보드 기본 표시 | 코스 3개, 제출물 5개(미채점 2개) | /instructor/dashboard | 코스 목록 + 채점 대기 2건 + 최근 제출물 5개 표시 |
+| 채점 대기 클릭 | 채점 대기 카운트 표시 중 | 카운트 클릭 | 미채점 제출물만 필터된 제출물 테이블로 이동 |
+| 코스 없는 강사 | 코스 0개 | /instructor/dashboard | "코스 만들기" 빈 상태 표시 |
+
+---
+
+### [Feature] reports
+
+> 유저플로우 §12 신고 접수·처리
+
+**파일 구조:**
+```
+src/features/reports/
+├── backend/
+│   ├── route.ts    ← POST /api/reports, GET /api/reports, PATCH /api/reports/:id
+│   ├── service.ts  ← createReport(), getReportList(), updateReport()
+│   ├── schema.ts   ← CreateReportSchema, UpdateReportSchema, ReportResponseSchema
+│   └── error.ts    ← REPORT_NOT_FOUND, INVALID_STATUS_TRANSITION
+├── components/
+│   ├── report-form.tsx        ← 신고 접수 폼 (target_type, reason, content)
+│   └── report-table.tsx       ← 운영자: 신고 목록 + 상태 필터
+├── hooks/
+│   ├── useCreateReportMutation.ts
+│   ├── useReportListQuery.ts
+│   └── useUpdateReportMutation.ts
+└── lib/
+    └── dto.ts
+```
+
+**API 엔드포인트:**
+| Method | Path | 설명 | 권한 |
+|---|---|---|---|
+| `POST` | `/api/reports` | 신고 접수 | withAuth |
+| `GET` | `/api/reports` | 신고 목록 조회 | operator |
+| `PATCH` | `/api/reports/:id` | 상태·액션 처리 | operator |
+
+**Backend Unit Tests:**
+```
+describe('createReport')
+  ✓ 정상 신고 접수 → status=received
+  ✗ 유효하지 않은 target_type → failure(400, VALIDATION_ERROR)
+  ✗ reason 빈 값 → failure(400, VALIDATION_ERROR)
+
+describe('updateReport')
+  ✓ received → investigating
+  ✓ investigating → resolved + action 지정
+  ✗ resolved → received (역방향) → failure(400, INVALID_STATUS_TRANSITION)
+  ✗ role≠operator → failure(403, FORBIDDEN)
+```
+
+**Frontend QA Sheet:**
+| 시나리오 | 사전 조건 | 단계 | 기대 결과 |
+|---|---|---|---|
+| 코스 신고 | 로그인, 코스 상세 페이지 | "신고" 클릭 → 사유·내용 작성 → 제출 | "신고 접수됨" 토스트 표시 |
+| 운영자 신고 목록 | role=operator | /operator/reports | 전체 신고 목록 표시 |
+| 운영자 상태 처리 | received 신고 존재 | 신고 선택 → "조사 중"으로 변경 | 상태 investigating 업데이트 |
+
+---
+
+### [Feature] metadata
+
+> 유저플로우 §12 카테고리·난이도 관리
+
+**파일 구조:**
+```
+src/features/metadata/
+├── backend/
+│   ├── route.ts    ← CRUD for /api/metadata/categories, /api/metadata/difficulties
+│   ├── service.ts  ← getCategoryList(), createCategory(), updateCategory(), getDifficultyList(), createDifficulty(), updateDifficulty()
+│   ├── schema.ts   ← CategorySchema, DifficultySchema
+│   └── error.ts    ← DUPLICATE_NAME, METADATA_IN_USE
+├── components/
+│   ├── category-manager.tsx     ← 카테고리 목록 + 추가/비활성화
+│   └── difficulty-manager.tsx   ← 난이도 목록 + 추가/비활성화
+├── hooks/
+│   ├── useCategoryListQuery.ts
+│   ├── useCreateCategoryMutation.ts
+│   ├── useUpdateCategoryMutation.ts
+│   ├── useDifficultyListQuery.ts
+│   ├── useCreateDifficultyMutation.ts
+│   └── useUpdateDifficultyMutation.ts
+└── lib/
+    └── dto.ts
+```
+
+**API 엔드포인트:**
+| Method | Path | 설명 | 권한 |
+|---|---|---|---|
+| `GET` | `/api/metadata/categories` | 카테고리 목록 | public (is_active=true) / operator (전체) |
+| `POST` | `/api/metadata/categories` | 카테고리 생성 | operator |
+| `PATCH` | `/api/metadata/categories/:id` | 비활성화/활성화 | operator |
+| `GET` | `/api/metadata/difficulties` | 난이도 목록 | public / operator |
+| `POST` | `/api/metadata/difficulties` | 난이도 생성 | operator |
+| `PATCH` | `/api/metadata/difficulties/:id` | 비활성화/활성화 | operator |
+
+**Backend Unit Tests:**
+```
+describe('createCategory')
+  ✓ 정상 생성 → is_active=true
+  ✗ 중복 이름 → failure(409, DUPLICATE_NAME)
+  ✗ role≠operator → failure(403, FORBIDDEN)
+
+describe('updateCategory (is_active)')
+  ✓ 사용 중인 카테고리 비활성화 → is_active=false (코스에는 유지, 신규 선택 불가)
+  ✓ 비활성 카테고리 재활성화 → is_active=true
+  ✗ role≠operator → failure(403, FORBIDDEN)
+```
+
+**Frontend QA Sheet:**
+| 시나리오 | 사전 조건 | 단계 | 기대 결과 |
+|---|---|---|---|
+| 카테고리 생성 | role=operator | "카테고리 추가" → 이름 입력 → 저장 | 목록에 신규 항목 표시 |
+| 중복 이름 입력 | 동일 이름 카테고리 존재 | 동일 이름으로 생성 시도 | 중복 에러 메시지 표시 |
+| 카테고리 비활성화 | 사용 중인 카테고리 | "비활성화" 클릭 | is_active=false, 코스 생성 폼에서 미표시 |
+| 코스 필터에서 활성 카테고리만 표시 | 비활성 카테고리 존재 | /courses 필터 바 확인 | is_active=true인 카테고리만 표시 |
+
+---
+
+## 4. 구현 순서 권장
+
+```
+1단계 (인프라)
+  withAuth middleware
+  requireRole guard
+  useRoleGuard hook
+  src/constants/auth.ts 경로 상수 추가 (onboarding, instructor/*, courses/my/*)
+
+2단계 (사용자 기반)
+  profiles feature (온보딩)
+
+3단계 (핵심 메타데이터)
+  metadata feature (카테고리·난이도: courses 폼에서 필요)
+
+4단계 (코스 도메인)
+  courses feature
+  enrollments feature
+
+5단계 (과제·제출 도메인)
+  assignments feature
+  submissions feature
+
+6단계 (집계 뷰)
+  learner feature (dashboard + grades)
+  instructor feature (dashboard)
+
+7단계 (운영)
+  reports feature
+```
+</file>
+
+<file path="prd.md">
+# PRD
+
+## 1. 제품 개요
+
+강사가 코스를 개설·운영하고, 학습자가 수강·과제 제출·피드백 수령까지 할 수 있는 경량 LMS 형태의 웹 앱.
+**핵심 목표**는 (1) 역할 기반 플로우의 정확한 가드, (2) 마감/지각/재제출 등 **상태 기반 비즈니스 룰** 구현, (3) 문서 주도(Usecase) 개발 프로세스의 실전 적용이다. 인증은 **Supabase Auth** 기반으로 운영.
+
+## 2. Stakeholders
+
+* **Learner**: 코스 탐색/수강/과제 제출/점수·피드백 확인
+* **Instructor**: 코스·과제 개설/게시, 제출물 채점/피드백/재제출 관리
+* **운영(옵션)**: 부정행위/신고 처리, 메타데이터 관리
+
+## 3. 포함 페이지
+
+1. **홈/카탈로그**
+
+   * 코스 리스트(검색/필터: 카테고리, 난이도, 최신/인기 정렬)
+   
+2. **인증 & 온보딩**
+
+   * 이메일 회원가입/로그인
+   * 역할 선택(강사/학습자) 및 최소 프로필
+   
+3. **코스 상세**
+
+   * 소개/커리큘럼/강사 정보/수강생 수/평균 평점(모의)
+   * 수강신청/취소/**재신청** (취소 이력이 있는 경우 상태만 활성화, 중복 데이터 생성 방지)
+   
+4. **Learner 대시보드**
+
+   * 내 코스, 진행률, 마감 임박 과제, 최근 피드백
+   
+5. **Assignment 상세(학습자)**
+
+   * 요구사항/마감/점수 비중/지각 정책
+   * 제출/재제출, 상태 표시(제출됨/지각/채점완료/재제출요청)
+   
+6. **성적/피드백(학습자)**
+
+   * 과제별 점수, **현재 성적(채점 완료된 과제 기준 가중 평균)** 표시
+   
+7. **Instructor 대시보드**
+
+   * 내 코스, 채점 대기 수, 최근 제출물
+   
+8. **코스 관리(강사)**
+
+   * 생성/수정/상태 전환(draft/published/archived)
+   
+9. **과제 관리(강사)**
+
+   * 생성/수정/게시(draft/published/**manually_closed**). ※ 날짜에 따른 자동 마감은 시스템 상태(due_at 경과)로 처리
+   * 제출물 테이블(필터: 미채점/지각/재제출요청)
+   * 채점/피드백/재제출 요청
+
+## 4. 사용자 여정 (User Journey)
+
+### 4.1 Learner 여정
+
+1. 회원가입/로그인 → 역할=Learner 선택/프로필
+2. 코스 카탈로그 탐색 → 코스 상세 → 수강신청
+3. 대시보드에서 마감 임박 과제 확인 → 과제 상세
+4. 제출(텍스트/링크/파일 모의) → 상태 변화(제출됨/지각)
+5. 성적/피드백 확인 → 필요 시 재제출
+
+### 4.2 Instructor 여정
+
+1. 회원가입/로그인 → 역할=Instructor 선택/프로필
+2. 코스 생성(draft) → published 전환
+3. 과제 생성(draft) → published(게시) → 제출물 수집
+4. 제출물 검토/채점 → 피드백/재제출 요청
+5. 마감 시 closed → 성적 정리
+
+## 5. IA (Tree)
+
+```
+/ (Home)
+├─ /auth/(signin|signup)
+├─ /onboarding (role=learner|instructor)
+├─ /courses
+│  ├─ /[courseId]
+│  │  ├─ /about
+│  │  ├─ /curriculum
+│  │  └─ /enroll
+│  └─ /my (learner)
+│     └─ /[courseId]
+│        ├─ /assignments
+│        │  └─ /[assignmentId]
+│        │     ├─ /submit
+│        │     └─ /feedback
+│        └─ /grades
+└─ /instructor
+   ├─ /dashboard
+   ├─ /courses
+   │  ├─ /new
+   │  └─ /[courseId]/edit
+   └─ /assignments
+      ├─ /new
+      └─ /[assignmentId]/submissions
+```
+</file>
+
+<file path="workflow.md">
+# Userflow
+
+## 1. 역할 선택 & 온보딩
+
+**입력**
+
+* 이메일/비밀번호
+* 역할 선택 (Learner / Instructor)
+* 공통 프로필 최소 입력: 이름, 휴대폰번호, 약관동의
+
+**처리**
+
+* Auth 계정 생성 (Supabase)
+* 역할 저장 (`role=learner | instructor`)
+* 프로필 레코드 생성
+* 약관 이력 저장
+* 기본 권한 토큰 발급
+
+**출력**
+
+* Learner → 코스 카탈로그 첫 진입
+* Instructor → 대시보드 첫 진입
+
+---
+
+## 2. 코스 탐색 & 수강신청/취소 (Learner)
+
+**입력**
+
+* 검색어, 필터(카테고리, 난이도), 정렬(최신순/인기순)
+* 코스 상세 진입
+* “수강신청” / “수강취소” 버튼 클릭
+
+**처리 (정책)**
+
+* 코스 상태 `published`만 신청 가능
+* `enrollments` 테이블 조회:
+  * 기록 없음 → INSERT (신규 신청)
+  * 기록 있음(`cancelled_at IS NOT NULL`) → UPDATE (`cancelled_at = NULL, enrolled_at = NOW()`) (재신청)
+  * 기록 있음(`cancelled_at IS NULL`) → 에러 (이미 수강 중)
+* 수강취소 시 대시보드/내 코스에서 제거, 성적 집계 제외
+
+**출력**
+
+* 신청/취소 성공/실패 피드백
+* Learner 대시보드 반영
+
+---
+
+## 3. Learner 대시보드
+
+**입력**
+
+* 대시보드 접근
+
+**처리 (정책)**
+
+* 내 코스 목록 표시
+* 진행률 계산(완료 과제 수/전체 과제 수)
+* 마감 임박 과제 표시
+* 최근 피드백 요약 표시
+
+**출력**
+
+* 내 코스, 진행률, 마감 임박 과제, 최근 피드백
+
+---
+
+## 4. 과제 상세 열람 (Learner)
+
+**입력**
+
+* 내 코스 → Assignment 목록 → Assignment 상세 클릭
+
+**처리 (정책)**
+
+* Assignment 상태 `published`만 열람 가능
+* `closed` 상태면 제출 버튼 비활성화
+* 본인 코스 등록 여부 검증
+
+**출력**
+
+* 과제 설명, 마감일, 점수 비중, 정책(지각 허용 여부/재제출 허용 여부)
+* 제출 UI(text+link 입력란)
+
+---
+
+## 5. 과제 제출/재제출 (Learner)
+
+**입력**
+
+* Text 필드(필수) + Link 필드(선택, URL 형식)
+* 제출 버튼 클릭
+
+**처리 (정책)**
+
+* 마감일 전: 정상 제출 (`status=submitted`)
+* 마감일 후:
+
+  * `지각 허용 = true` → `status=submitted`, `late=true`
+  * `지각 허용 = false` → 제출 차단
+* 재제출 허용 여부 검증
+* 텍스트/링크 유효성 검사
+
+**출력**
+
+* 제출 성공/실패 메시지
+* Learner 화면에서 상태 업데이트
+
+---
+
+## 6. 성적 & 피드백 열람 (Learner)
+
+**입력**
+
+* 성적 페이지 접근
+
+**처리 (정책)**
+
+* 본인 제출물만 조회 가능
+* 과제별 점수, 지각 여부, 재제출 여부, 피드백 표시
+* 코스별 현재 성적 계산 (채점된 과제만 집계)
+  * 분자: SUM(score × weight) (status = 'graded'인 과제만)
+  * 분모: SUM(weight) (status = 'graded'인 과제만)
+  * ※ 미제출/미채점 과제는 0점 처리하지 않고 집계에서 제외
+
+**출력**
+
+* 과제별 점수/상태
+* 코스 총점 요약
+
+---
+
+## 7. Instructor 대시보드
+
+**입력**
+
+* 대시보드 접근
+
+**처리 (정책)**
+
+* 내 코스 목록 표시(draft/published/archived)
+* 채점 대기 수 표시
+* 최근 제출물 표시
+
+**출력**
+
+* 내 코스, 채점 대기, 최근 제출물
+
+---
+
+## 8. 코스 관리 (Instructor)
+
+**입력**
+
+* 코스 생성/수정 (제목, 소개, 카테고리, 난이도, 커리큘럼)
+* 상태 전환(draft/published/archived)
+
+**처리 (정책)**
+
+* 소유자만 접근 가능
+* `draft → published` 전환 시 공개
+* `published → archived` 전환 시 신규 수강 차단
+
+**출력**
+
+* 생성/수정/상태 전환 결과 반영
+
+---
+
+## 9. 과제 관리 (Instructor)
+
+**입력**
+
+* 과제 생성/수정 (제목, 설명, 마감일, 점수 비중, 지각/재제출 정책)
+* 상태 전환(draft/published/closed)
+
+**처리 (정책)**
+
+* 소유 코스만 접근 가능
+* 게시 시 학습자 노출
+* 마감일 이후 자동 `closed`
+* 제출물 테이블: 필터(미채점/지각/재제출요청)
+
+**출력**
+
+* Assignment 목록 갱신
+* Learner 화면 반영
+
+---
+
+## 10. 제출물 채점 & 피드백 (Instructor)
+
+**입력**
+
+* 제출물 선택
+* 점수(0~100), 피드백 작성
+* “재제출 요청” 버튼 선택 가능
+
+**처리 (정책)**
+
+* 점수 범위 제한
+* 피드백 필수
+* 점수 입력 → `graded`
+* 재제출 요청 → `resubmission_required`
+
+**출력**
+
+* Learner에게 피드백 표시
+* Learner 대시보드 과제 상태 반영
+
+---
+
+## 11. Assignment 게시/마감 (Instructor)
+
+**입력**
+
+* 과제 게시/마감
+
+**처리 (정책)**
+
+* `draft → published` 전환 시 학습자 노출
+* 유효 상태(Effective Status) 판별:
+  * DB `status = 'closed'` → 마감 (강사 수동 강제 마감)
+  * DB `status = 'published'` AND `NOW() > due_at` → 마감 (자동 마감)
+  * 그 외 → 진행 중
+* 마감 후 제출 불가, 채점만 가능
+
+**출력**
+
+* Assignment 상태 갱신
+* Learner 화면 반영
+
+---
+
+## 12. 운영 (Operator)
+
+**입력**
+
+* 신고 접수(코스/과제/제출물/사용자, 사유, 내용)
+* 메타데이터 관리(카테고리, 난이도)
+
+**처리 (정책)**
+
+* 운영자 권한 가드
+* 신고 처리 상태: received → investigating → resolved
+* 액션: 경고, 제출물 무효화, 계정 제한
+* 메타데이터 CRUD (사용 중 값은 비활성화 처리 권장)
+
+**출력**
+
+* 처리 결과 알림
+* 메타데이터 갱신
+</file>
+
+</files>

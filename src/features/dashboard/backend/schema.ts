@@ -37,3 +37,40 @@ export type EnrolledCourse = z.infer<typeof EnrolledCourseSchema>;
 export type UpcomingAssignment = z.infer<typeof UpcomingAssignmentSchema>;
 export type RecentFeedback = z.infer<typeof RecentFeedbackSchema>;
 export type LearnerDashboardResponse = z.infer<typeof LearnerDashboardResponseSchema>;
+
+// --- Grades ---
+
+export const assignmentSubmissionStatuses = [
+  'not_submitted',
+  'submitted',
+  'graded',
+  'resubmission_required',
+  'invalidated',
+] as const;
+
+export const AssignmentGradeSchema = z.object({
+  assignmentId: z.string().uuid(),
+  assignmentTitle: z.string(),
+  weight: z.number(),
+  dueAt: z.string(),
+  submissionStatus: z.enum(assignmentSubmissionStatuses),
+  score: z.number().int().nullable(),
+  feedback: z.string().nullable(),
+  gradedAt: z.string().nullable(),
+  isLate: z.boolean(),
+});
+
+export const CourseGradesResponseSchema = z.object({
+  courseId: z.string().uuid(),
+  courseTitle: z.string(),
+  assignments: z.array(AssignmentGradeSchema),
+  // 현재 평점: 채점된 과제만 집계 (퀄리티 지표). 채점 과제 없으면 null
+  currentGpa: z.number().nullable(),
+  // 예상 최종 성적: 미제출 0점 처리 (달성도 지표)
+  expectedFinalGrade: z.number(),
+  totalWeight: z.number(),
+  gradedWeight: z.number(),
+});
+
+export type AssignmentGrade = z.infer<typeof AssignmentGradeSchema>;
+export type CourseGradesResponse = z.infer<typeof CourseGradesResponseSchema>;

@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { failure, success, type HandlerResult } from '@/backend/http/response';
 import { LEARNER_HOME_PATH, INSTRUCTOR_HOME_PATH } from '@/constants/auth';
+import { PG_ERROR_CODES } from '@/constants/postgres-error-codes';
 import { profileErrorCodes, type ProfileServiceError } from './error';
 import type { SignupRequest, SignupResponse, OnboardingRequest, OnboardingResponse } from './schema';
 
@@ -39,7 +40,7 @@ export const onboardUser = async (
     .insert({ id: userId, name: data.name, phone: data.phone, role: data.role });
 
   if (profileError) {
-    if (profileError.code === '23505') {
+    if (profileError.code === PG_ERROR_CODES.UNIQUE_VIOLATION) {
       return failure(409, profileErrorCodes.profileAlreadyExists, '이미 온보딩이 완료된 계정입니다.');
     }
 

@@ -2,10 +2,12 @@ import { createMiddleware } from 'hono/factory';
 import { contextKeys, type AppEnv, type CurrentUser, type UserRole } from '@/backend/hono/context';
 import { getSupabase } from '@/backend/hono/context';
 
+export const extractBearerToken = (authHeader: string | undefined): string | null =>
+  authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+
 export const withAuth = () =>
   createMiddleware<AppEnv>(async (c, next) => {
-    const authHeader = c.req.header('Authorization');
-    const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+    const token = extractBearerToken(c.req.header('Authorization'));
 
     if (!token) {
       return c.json(

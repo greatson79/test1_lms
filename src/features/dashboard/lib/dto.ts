@@ -3,6 +3,8 @@ export {
   EnrolledCourseSchema,
   UpcomingAssignmentSchema,
   RecentFeedbackSchema,
+  CourseGradesResponseSchema,
+  AssignmentGradeSchema,
 } from '@/features/dashboard/backend/schema';
 
 export type {
@@ -10,4 +12,6 @@ export type {
   EnrolledCourse,
   UpcomingAssignment,
   RecentFeedback,
+  CourseGradesResponse,
+  AssignmentGrade,
 } from '@/features/dashboard/backend/schema';

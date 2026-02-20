@@ -6,7 +6,10 @@ import type {
   EnrolledCourse,
   UpcomingAssignment,
   RecentFeedback,
+  AssignmentGrade,
+  CourseGradesResponse,
 } from './schema';
+import { assignmentSubmissionStatuses } from './schema';
 
 type CourseRow = {
   id: string;
@@ -206,4 +209,171 @@ export const getLearnerDashboard = async (
   }));
 
   return success({ courses, upcomingAssignments, recentFeedbacks });
+};
+
+// --- Grades ---
+
+type GradeAssignmentRow = {
+  id: string;
+  title: string;
+  weight: string;
+  due_at: string;
+};
+
+type GradeSubmissionRow = {
+  assignment_id: string;
+  score: number | null;
+  feedback: string | null;
+  graded_at: string | null;
+  status: string;
+  is_late: boolean;
+};
+
+const roundGrade = (value: number) => Math.round(value * 10) / 10;
+
+const toSubmissionStatus = (raw: string): AssignmentGrade['submissionStatus'] => {
+  const valid = assignmentSubmissionStatuses as readonly string[];
+  return valid.includes(raw)
+    ? (raw as AssignmentGrade['submissionStatus'])
+    : 'submitted';
+};
+
+export const getCourseGrades = async (
+  supabase: SupabaseClient,
+  learnerId: string,
+  courseId: string,
+): Promise<HandlerResult<CourseGradesResponse, DashboardServiceError>> => {
+  // 1. 수강 여부 확인
+  const { data: enrollment, error: enrollmentError } = await supabase
+    .from('enrollments')
+    .select('id')
+    .eq('learner_id', learnerId)
+    .eq('course_id', courseId)
+    .is('cancelled_at', null)
+    .maybeSingle();
+
+  if (enrollmentError) {
+    return failure(500, dashboardErrorCodes.fetchError, enrollmentError.message);
+  }
+
+  if (!enrollment) {
+    return failure(403, dashboardErrorCodes.notEnrolled, '수강 중이 아닌 코스입니다.');
+  }
+
+  // 2. 코스 기본 정보
+  const { data: course, error: courseError } = await supabase
+    .from('courses')
+    .select('id, title')
+    .eq('id', courseId)
+    .maybeSingle<{ id: string; title: string }>();
+
+  if (courseError || !course) {
+    return failure(404, dashboardErrorCodes.fetchError, '코스를 찾을 수 없습니다.');
+  }
+
+  // 3. 코스의 published 과제 목록
+  const { data: assignmentsRaw, error: assignmentsError } = await supabase
+    .from('assignments')
+    .select('id, title, weight, due_at')
+    .eq('course_id', courseId)
+    .eq('status', 'published')
+    .order('due_at', { ascending: true });
+
+  if (assignmentsError) {
+    return failure(500, dashboardErrorCodes.fetchError, assignmentsError.message);
+  }
+
+  const gradeAssignments = (assignmentsRaw ?? []) as unknown as GradeAssignmentRow[];
+
+  if (gradeAssignments.length === 0) {
+    return success({
+      courseId,
+      courseTitle: course.title,
+      assignments: [],
+      currentGpa: null,
+      expectedFinalGrade: 0,
+      totalWeight: 0,
+      gradedWeight: 0,
+    });
+  }
+
+  // 4. 학습자의 제출 현황
+  const assignmentIds = gradeAssignments.map((a) => a.id);
+  const { data: submissionsRaw, error: submissionsError } = await supabase
+    .from('submissions')
+    .select('assignment_id, score, feedback, graded_at, status, is_late')
+    .eq('learner_id', learnerId)
+    .in('assignment_id', assignmentIds);
+
+  if (submissionsError) {
+    return failure(500, dashboardErrorCodes.fetchError, submissionsError.message);
+  }
+
+  const submissionMap = new Map(
+    ((submissionsRaw ?? []) as unknown as GradeSubmissionRow[]).map((s) => [
+      s.assignment_id,
+      s,
+    ]),
+  );
+
+  // 5. 성적 계산
+  let gradedWeightedScoreSum = 0;
+  let gradedWeightSum = 0;
+  let totalWeightSum = 0;
+
+  const assignments: AssignmentGrade[] = gradeAssignments.map((a) => {
+    const weight = Number(a.weight);
+    totalWeightSum += weight;
+
+    const submission = submissionMap.get(a.id);
+
+    if (!submission) {
+      return {
+        assignmentId: a.id,
+        assignmentTitle: a.title,
+        weight,
+        dueAt: a.due_at,
+        submissionStatus: 'not_submitted' as const,
+        score: null,
+        feedback: null,
+        gradedAt: null,
+        isLate: false,
+      };
+    }
+
+    if (submission.status === 'graded' && submission.score !== null) {
+      gradedWeightedScoreSum += submission.score * weight;
+      gradedWeightSum += weight;
+    }
+
+    return {
+      assignmentId: a.id,
+      assignmentTitle: a.title,
+      weight,
+      dueAt: a.due_at,
+      submissionStatus: toSubmissionStatus(submission.status),
+      score: submission.score ?? null,
+      feedback: submission.feedback ?? null,
+      gradedAt: submission.graded_at ?? null,
+      isLate: submission.is_late,
+    };
+  });
+
+  // 현재 평점: 채점된 과제들의 가중 평균 (퀄리티 지표)
+  const currentGpa =
+    gradedWeightSum > 0 ? roundGrade(gradedWeightedScoreSum / gradedWeightSum) : null;
+
+  // 예상 최종 성적: 전체 과제 대비 (미제출 = 0점, 달성도 지표)
+  const expectedFinalGrade =
+    totalWeightSum > 0 ? roundGrade(gradedWeightedScoreSum / totalWeightSum) : 0;
+
+  return success({
+    courseId,
+    courseTitle: course.title,
+    assignments,
+    currentGpa,
+    expectedFinalGrade,
+    totalWeight: totalWeightSum,
+    gradedWeight: gradedWeightSum,
+  });
 };

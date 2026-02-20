@@ -1,5 +1,6 @@
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import type { AppContext } from '@/backend/hono/context';
+import { getLogger } from '@/backend/hono/context';
 
 export type SuccessResult<TData> = {
   ok: true;
@@ -61,4 +62,17 @@ export const respond = <TData, TCode extends string, TDetails = unknown>(
     },
     errorResult.status,
   );
+};
+
+export const handleServiceResult = <TData, TCode extends string, TDetails = unknown>(
+  c: AppContext,
+  result: HandlerResult<TData, TCode, TDetails>,
+  logLabel?: string,
+) => {
+  if (!result.ok) {
+    const errorResult = result as ErrorResult<TCode, TDetails>;
+    getLogger(c).error(logLabel ?? 'Service error', errorResult.error.message);
+  }
+
+  return respond(c, result);
 };
