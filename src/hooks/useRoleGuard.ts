@@ -8,12 +8,13 @@ import {
   ONBOARDING_PATH,
   LEARNER_HOME_PATH,
   INSTRUCTOR_HOME_PATH,
+  OPERATOR_HOME_PATH,
 } from "@/constants/auth";
 
 const ROLE_HOME: Record<UserRole, string> = {
   learner: LEARNER_HOME_PATH,
   instructor: INSTRUCTOR_HOME_PATH,
-  operator: "/operator",
+  operator: OPERATOR_HOME_PATH,
 };
 
 export const useRoleGuard = (requiredRole: UserRole) => {

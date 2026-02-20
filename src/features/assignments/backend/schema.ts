@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 export const MySubmissionDtoSchema = z.object({
   id: z.string().uuid(),
-  status: z.enum(['submitted', 'graded', 'resubmission_required']),
+  status: z.enum(['submitted', 'graded', 'resubmission_required', 'invalidated']),
   contentText: z.string().nullable(),
   contentLink: z.string().nullable(),
   isLate: z.boolean(),

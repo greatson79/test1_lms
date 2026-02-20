@@ -13,6 +13,7 @@ import { registerGradeRoutes } from "@/features/grades/backend/route";
 import { registerInstructorDashboardRoutes } from "@/features/instructor-dashboard/backend/route";
 import { registerInstructorCourseRoutes } from "@/features/instructor-courses/backend/route";
 import { registerInstructorAssignmentRoutes } from "@/features/instructor-assignments/backend/route";
+import { registerOperatorRoutes } from "@/features/operator/backend/route";
 import type { AppEnv } from "@/backend/hono/context";
 
 let singletonApp: Hono<AppEnv> | null = null;
@@ -39,6 +40,7 @@ export const createHonoApp = () => {
   registerInstructorDashboardRoutes(app);
   registerInstructorCourseRoutes(app);
   registerInstructorAssignmentRoutes(app);
+  registerOperatorRoutes(app);
 
   app.notFound((c) => {
     return c.json(

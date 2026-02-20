@@ -17,7 +17,7 @@ export const SubmissionResponseSchema = z.object({
   contentText: z.string(),
   contentLink: z.string().nullable(),
   isLate: z.boolean(),
-  status: z.enum(['submitted', 'graded', 'resubmission_required']),
+  status: z.enum(['submitted', 'graded', 'resubmission_required', 'invalidated']),
   score: z.number().int().nullable(),
   feedback: z.string().nullable(),
   submittedAt: z.string(),

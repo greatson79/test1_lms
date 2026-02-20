@@ -1,6 +1,7 @@
 export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[];
 
 export type Database = {
+  PostgrestVersion: "12";
   public: {
     Tables: {
       profiles: {
@@ -9,6 +10,7 @@ export type Database = {
           name: string;
           phone: string;
           role: Database['public']['Enums']['user_role'];
+          is_active: boolean;
           created_at: string;
           updated_at: string;
         };
@@ -17,6 +19,7 @@ export type Database = {
           name: string;
           phone: string;
           role: Database['public']['Enums']['user_role'];
+          is_active?: boolean;
           created_at?: string;
           updated_at?: string;
         };
@@ -25,6 +28,7 @@ export type Database = {
           name?: string;
           phone?: string;
           role?: Database['public']['Enums']['user_role'];
+          is_active?: boolean;
           created_at?: string;
           updated_at?: string;
         };
@@ -354,6 +358,46 @@ export type Database = {
           },
         ];
       };
+      warnings: {
+        Row: {
+          id: string;
+          user_id: string;
+          report_id: string;
+          warned_at: string;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          report_id: string;
+          warned_at?: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          report_id?: string;
+          warned_at?: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'warnings_user_id_fkey';
+            columns: ['user_id'];
+            referencedRelation: 'profiles';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'warnings_report_id_fkey';
+            columns: ['report_id'];
+            referencedRelation: 'reports';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
     };
     Views: Record<string, never>;
     Functions: Record<string, never>;
@@ -361,7 +405,7 @@ export type Database = {
       user_role: 'learner' | 'instructor' | 'operator';
       course_status: 'draft' | 'published' | 'archived';
       assignment_status: 'draft' | 'published' | 'closed';
-      submission_status: 'submitted' | 'graded' | 'resubmission_required';
+      submission_status: 'submitted' | 'graded' | 'resubmission_required' | 'invalidated';
       report_target_type: 'course' | 'assignment' | 'submission' | 'user';
       report_status: 'received' | 'investigating' | 'resolved';
       report_action: 'warning' | 'invalidate_submission' | 'restrict_account';
