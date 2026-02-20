@@ -1,5 +1,5 @@
 import type { Context } from 'hono';
-import type { SupabaseClient } from '@supabase/supabase-js';
+import type { AppSupabaseClient } from '@/backend/supabase/client';
 
 export type AppLogger = Pick<Console, 'info' | 'error' | 'warn' | 'debug'>;
 
@@ -18,7 +18,7 @@ export type CurrentUser = {
 };
 
 export type AppVariables = {
-  supabase: SupabaseClient;
+  supabase: AppSupabaseClient;
   logger: AppLogger;
   config: AppConfig;
   currentUser: CurrentUser | undefined;
@@ -40,7 +40,7 @@ export const contextKeys = {
 } as const satisfies Record<keyof AppVariables, keyof AppVariables>;
 
 export const getSupabase = (c: AppContext) =>
-  c.get(contextKeys.supabase) as SupabaseClient;
+  c.get(contextKeys.supabase) as AppSupabaseClient;
 
 export const getLogger = (c: AppContext) =>
   c.get(contextKeys.logger) as AppLogger;

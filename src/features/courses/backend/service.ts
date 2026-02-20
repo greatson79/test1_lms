@@ -1,5 +1,6 @@
-import type { SupabaseClient } from '@supabase/supabase-js';
 import { failure, success, type HandlerResult } from '@/backend/http/response';
+import type { AppSupabaseClient } from '@/backend/supabase/client';
+import type { Tables } from '@/types/database.types';
 import { courseErrorCodes, type CourseServiceError } from './error';
 import type {
   CourseListQuery,
@@ -11,17 +12,24 @@ import type {
   CourseDetailResponse,
 } from './schema';
 
-type CourseRow = {
-  id: string;
-  title: string;
-  description: string | null;
-  curriculum: string | null;
-  created_at: string;
+type CourseRow = Pick<Tables<'courses'>, 'id' | 'title' | 'description' | 'curriculum' | 'created_at'> & {
   category: { id: string; name: string } | null;
   difficulty: { id: string; name: string } | null;
   instructor: { name: string } | null;
   enrollments: { id: string }[];
 };
+
+const COURSE_SELECT = `
+  id,
+  title,
+  description,
+  curriculum,
+  created_at,
+  category:categories!category_id(id, name),
+  difficulty:difficulties!difficulty_id(id, name),
+  instructor:profiles!instructor_id(name),
+  enrollments(id)
+` as const;
 
 const mapCourseRow = (row: CourseRow): CourseDto => ({
   id: row.id,
@@ -35,22 +43,12 @@ const mapCourseRow = (row: CourseRow): CourseDto => ({
 });
 
 export const listCourses = async (
-  supabase: SupabaseClient,
+  supabase: AppSupabaseClient,
   params: CourseListQuery,
 ): Promise<HandlerResult<CourseListResponse, CourseServiceError>> => {
   let query = supabase
     .from('courses')
-    .select(`
-      id,
-      title,
-      description,
-      curriculum,
-      created_at,
-      category:categories!category_id(id, name),
-      difficulty:difficulties!difficulty_id(id, name),
-      instructor:profiles!instructor_id(name),
-      enrollments(id)
-    `)
+    .select(COURSE_SELECT)
     .eq('status', 'published');
 
   if (params.search) {
@@ -75,7 +73,7 @@ export const listCourses = async (
     return failure(500, courseErrorCodes.fetchError, coursesError.message);
   }
 
-  const rows = (coursesRaw ?? []) as unknown as CourseRow[];
+  const rows = (coursesRaw ?? []) as CourseRow[];
   let courses: CourseDto[] = rows.map(mapCourseRow);
 
   if (params.sort === 'popular') {
@@ -112,23 +110,13 @@ export const listCourses = async (
 };
 
 export const getCourseDetail = async (
-  supabase: SupabaseClient,
+  supabase: AppSupabaseClient,
   courseId: string,
   learnerId: string | null,
 ): Promise<HandlerResult<CourseDetailResponse, CourseServiceError>> => {
   const { data: courseRaw, error: courseError } = await supabase
     .from('courses')
-    .select(`
-      id,
-      title,
-      description,
-      curriculum,
-      created_at,
-      category:categories!category_id(id, name),
-      difficulty:difficulties!difficulty_id(id, name),
-      instructor:profiles!instructor_id(name),
-      enrollments(id)
-    `)
+    .select(COURSE_SELECT)
     .eq('id', courseId)
     .eq('status', 'published')
     .maybeSingle();
@@ -141,7 +129,7 @@ export const getCourseDetail = async (
     return failure(404, courseErrorCodes.notFound, '코스를 찾을 수 없습니다.');
   }
 
-  const row = courseRaw as unknown as CourseRow;
+  const row = courseRaw as CourseRow;
   const courseDto = mapCourseRow(row);
 
   let enrollmentStatus: 'active' | 'cancelled' | null = null;
@@ -152,7 +140,7 @@ export const getCourseDetail = async (
       .select('id, cancelled_at')
       .eq('course_id', courseId)
       .eq('learner_id', learnerId)
-      .maybeSingle<{ id: string; cancelled_at: string | null }>();
+      .maybeSingle();
 
     if (enrollment) {
       enrollmentStatus = enrollment.cancelled_at ? 'cancelled' : 'active';

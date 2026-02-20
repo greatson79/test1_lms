@@ -1,29 +1,31 @@
-import type { SupabaseClient } from '@supabase/supabase-js';
 import { failure, success, type HandlerResult } from '@/backend/http/response';
+import type { AppSupabaseClient } from '@/backend/supabase/client';
+import type { Tables } from '@/types/database.types';
 import { submissionErrorCodes, type SubmissionServiceError } from './error';
 import type { SubmitRequest, SubmitResponse, SubmissionResponse } from './schema';
 
-type AssignmentRow = {
-  id: string;
-  status: 'published' | 'closed';
-  due_at: string;
-  allow_late: boolean;
-  allow_resubmit: boolean;
-};
+type AssignmentRow = Pick<
+  Tables<'assignments'>,
+  'id' | 'status' | 'due_at' | 'allow_late' | 'allow_resubmit'
+>;
 
-type SubmissionRow = {
-  id: string;
-  assignment_id: string;
-  learner_id: string;
-  content_text: string;
-  content_link: string | null;
-  is_late: boolean;
-  status: 'submitted' | 'graded' | 'resubmission_required';
-  score: number | null;
-  feedback: string | null;
-  submitted_at: string;
-  graded_at: string | null;
-};
+type SubmissionRow = Pick<
+  Tables<'submissions'>,
+  | 'id'
+  | 'assignment_id'
+  | 'learner_id'
+  | 'content_text'
+  | 'content_link'
+  | 'is_late'
+  | 'status'
+  | 'score'
+  | 'feedback'
+  | 'submitted_at'
+  | 'graded_at'
+>;
+
+const SUBMISSION_SELECT =
+  'id, assignment_id, learner_id, content_text, content_link, is_late, status, score, feedback, submitted_at, graded_at' as const;
 
 const mapSubmissionRow = (row: SubmissionRow): SubmissionResponse => ({
   id: row.id,
@@ -40,7 +42,7 @@ const mapSubmissionRow = (row: SubmissionRow): SubmissionResponse => ({
 });
 
 const verifyEnrollmentForSubmission = async (
-  supabase: SupabaseClient,
+  supabase: AppSupabaseClient,
   courseId: string,
   learnerId: string,
 ): Promise<HandlerResult<null, SubmissionServiceError>> => {
@@ -82,7 +84,7 @@ const checkDeadline = (assignment: AssignmentRow): DeadlineCheck => {
 };
 
 export const submitAssignment = async (
-  supabase: SupabaseClient,
+  supabase: AppSupabaseClient,
   courseId: string,
   assignmentId: string,
   learnerId: string,
@@ -91,7 +93,7 @@ export const submitAssignment = async (
   const enrollmentCheck = await verifyEnrollmentForSubmission(supabase, courseId, learnerId);
   if (!enrollmentCheck.ok) return enrollmentCheck;
 
-  const { data: assignmentRaw, error: assignmentError } = await supabase
+  const { data: assignment, error: assignmentError } = await supabase
     .from('assignments')
     .select('id, status, due_at, allow_late, allow_resubmit')
     .eq('id', assignmentId)
@@ -103,13 +105,11 @@ export const submitAssignment = async (
     return failure(500, submissionErrorCodes.fetchError, assignmentError.message);
   }
 
-  if (!assignmentRaw) {
+  if (!assignment) {
     return failure(404, submissionErrorCodes.assignmentNotFound, '과제를 찾을 수 없습니다.');
   }
 
-  const assignment = assignmentRaw as unknown as AssignmentRow;
-
-  const deadlineCheckResult = checkDeadline(assignment);
+  const deadlineCheckResult = checkDeadline(assignment as AssignmentRow);
   if (deadlineCheckResult.blocked) {
     if (deadlineCheckResult.reason === 'closed') {
       return failure(409, submissionErrorCodes.assignmentClosed, '강사에 의해 마감된 과제입니다.');
@@ -145,20 +145,18 @@ export const submitAssignment = async (
       status: 'submitted',
       submitted_at: new Date().toISOString(),
     })
-    .select(
-      'id, assignment_id, learner_id, content_text, content_link, is_late, status, score, feedback, submitted_at, graded_at',
-    )
+    .select(SUBMISSION_SELECT)
     .single();
 
   if (insertError) {
     return failure(500, submissionErrorCodes.fetchError, insertError.message);
   }
 
-  return success({ submission: mapSubmissionRow(inserted as unknown as SubmissionRow) }, 201);
+  return success({ submission: mapSubmissionRow(inserted as SubmissionRow) }, 201);
 };
 
 export const resubmitAssignment = async (
-  supabase: SupabaseClient,
+  supabase: AppSupabaseClient,
   courseId: string,
   assignmentId: string,
   learnerId: string,
@@ -167,7 +165,7 @@ export const resubmitAssignment = async (
   const enrollmentCheck = await verifyEnrollmentForSubmission(supabase, courseId, learnerId);
   if (!enrollmentCheck.ok) return enrollmentCheck;
 
-  const { data: assignmentRaw, error: assignmentError } = await supabase
+  const { data: assignment, error: assignmentError } = await supabase
     .from('assignments')
     .select('id, status, due_at, allow_late, allow_resubmit')
     .eq('id', assignmentId)
@@ -179,17 +177,13 @@ export const resubmitAssignment = async (
     return failure(500, submissionErrorCodes.fetchError, assignmentError.message);
   }
 
-  if (!assignmentRaw) {
+  if (!assignment) {
     return failure(404, submissionErrorCodes.assignmentNotFound, '과제를 찾을 수 없습니다.');
   }
 
-  const assignment = assignmentRaw as unknown as AssignmentRow;
-
-  const { data: existingRaw, error: existingError } = await supabase
+  const { data: existing, error: existingError } = await supabase
     .from('submissions')
-    .select(
-      'id, assignment_id, learner_id, content_text, content_link, is_late, status, score, feedback, submitted_at, graded_at',
-    )
+    .select(SUBMISSION_SELECT)
     .eq('assignment_id', assignmentId)
     .eq('learner_id', learnerId)
     .maybeSingle();
@@ -198,11 +192,9 @@ export const resubmitAssignment = async (
     return failure(500, submissionErrorCodes.fetchError, existingError.message);
   }
 
-  if (!existingRaw) {
+  if (!existing) {
     return failure(404, submissionErrorCodes.submissionNotFound, '기존 제출 내역이 없습니다.');
   }
-
-  const existing = existingRaw as unknown as SubmissionRow;
 
   if (!assignment.allow_resubmit) {
     return failure(403, submissionErrorCodes.resubmitNotAllowed, '재제출이 허용되지 않는 과제입니다.');
@@ -212,7 +204,7 @@ export const resubmitAssignment = async (
     return failure(409, submissionErrorCodes.resubmitNotRequested, '재제출 요청 상태가 아닙니다.');
   }
 
-  const resubmitDeadlineCheck = checkDeadline(assignment);
+  const resubmitDeadlineCheck = checkDeadline(assignment as AssignmentRow);
   if (resubmitDeadlineCheck.blocked) {
     if (resubmitDeadlineCheck.reason === 'closed') {
       return failure(409, submissionErrorCodes.assignmentClosed, '강사에 의해 마감된 과제입니다.');
@@ -236,14 +228,12 @@ export const resubmitAssignment = async (
     })
     .eq('assignment_id', assignmentId)
     .eq('learner_id', learnerId)
-    .select(
-      'id, assignment_id, learner_id, content_text, content_link, is_late, status, score, feedback, submitted_at, graded_at',
-    )
+    .select(SUBMISSION_SELECT)
     .single();
 
   if (updateError) {
     return failure(500, submissionErrorCodes.fetchError, updateError.message);
   }
 
-  return success({ submission: mapSubmissionRow(updated as unknown as SubmissionRow) });
+  return success({ submission: mapSubmissionRow(updated as SubmissionRow) });
 };

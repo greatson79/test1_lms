@@ -1,5 +1,6 @@
-import type { SupabaseClient } from '@supabase/supabase-js';
 import { failure, success, type HandlerResult } from '@/backend/http/response';
+import type { AppSupabaseClient } from '@/backend/supabase/client';
+import type { Tables } from '@/types/database.types';
 import { assignmentErrorCodes, type AssignmentServiceError } from './error';
 import type {
   AssignmentDto,
@@ -8,30 +9,15 @@ import type {
   AssignmentDetailResponse,
 } from './schema';
 
-type AssignmentRow = {
-  id: string;
-  course_id: string;
-  title: string;
-  description: string | null;
-  due_at: string;
-  weight: string;
-  allow_late: boolean;
-  allow_resubmit: boolean;
-  status: 'published' | 'closed';
-};
+type AssignmentRow = Pick<
+  Tables<'assignments'>,
+  'id' | 'course_id' | 'title' | 'description' | 'due_at' | 'weight' | 'allow_late' | 'allow_resubmit' | 'status'
+>;
 
-type SubmissionRow = {
-  id: string;
-  assignment_id: string;
-  status: 'submitted' | 'graded' | 'resubmission_required';
-  content_text: string | null;
-  content_link: string | null;
-  is_late: boolean;
-  score: number | null;
-  feedback: string | null;
-  submitted_at: string;
-  graded_at: string | null;
-};
+type SubmissionRow = Pick<
+  Tables<'submissions'>,
+  'id' | 'assignment_id' | 'status' | 'content_text' | 'content_link' | 'is_late' | 'score' | 'feedback' | 'submitted_at' | 'graded_at'
+>;
 
 const mapSubmissionRow = (row: SubmissionRow): MySubmissionDto => ({
   id: row.id,
@@ -57,16 +43,16 @@ const mapAssignmentRow = (
   weight: Number(row.weight),
   allowLate: row.allow_late,
   allowResubmit: row.allow_resubmit,
-  status: row.status,
+  status: row.status as AssignmentDto['status'],
   mySubmission: submission ? mapSubmissionRow(submission) : null,
 });
 
 export const verifyEnrollment = async (
-  supabase: SupabaseClient,
+  supabase: AppSupabaseClient,
   courseId: string,
   learnerId: string,
 ): Promise<HandlerResult<null, AssignmentServiceError>> => {
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as AppSupabaseClient)
     .from('enrollments')
     .select('id')
     .eq('course_id', courseId)
@@ -86,7 +72,7 @@ export const verifyEnrollment = async (
 };
 
 export const listAssignments = async (
-  supabase: SupabaseClient,
+  supabase: AppSupabaseClient,
   courseId: string,
   learnerId: string,
 ): Promise<HandlerResult<AssignmentListResponse, AssignmentServiceError>> => {
@@ -120,21 +106,21 @@ export const listAssignments = async (
       return failure(500, assignmentErrorCodes.fetchError, submissionsError.message);
     }
 
-    submissions = (submissionsRaw ?? []) as unknown as SubmissionRow[];
+    submissions = (submissionsRaw ?? []) as SubmissionRow[];
   }
 
   const submissionMap = new Map(submissions.map((s) => [s.assignment_id, s]));
 
   const assignments: AssignmentDto[] = (assignmentsRaw ?? []).map((a) => {
     const sub = submissionMap.get(a.id as string) ?? null;
-    return mapAssignmentRow(a as unknown as AssignmentRow, sub);
+    return mapAssignmentRow(a as AssignmentRow, sub);
   });
 
   return success({ assignments });
 };
 
 export const getAssignmentDetail = async (
-  supabase: SupabaseClient,
+  supabase: AppSupabaseClient,
   courseId: string,
   assignmentId: string,
   learnerId: string,
@@ -172,8 +158,8 @@ export const getAssignmentDetail = async (
   }
 
   const assignment = mapAssignmentRow(
-    assignmentRaw as unknown as AssignmentRow,
-    (submissionRaw as unknown as SubmissionRow) ?? null,
+    assignmentRaw as AssignmentRow,
+    (submissionRaw as SubmissionRow) ?? null,
   );
 
   return success({ assignment });
