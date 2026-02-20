@@ -14,6 +14,7 @@ import {
   useOnboardingMutation,
   extractApiErrorMessage,
 } from "@/features/profiles/hooks/useOnboardingMutation";
+import { useSignupMutation } from "@/features/profiles/hooks/useSignupMutation";
 import type { OnboardingRequest } from "@/features/profiles/lib/dto";
 import {
   ONBOARDING_PATH,
@@ -50,7 +51,9 @@ export default function SignupPage({ params }: SignupPageProps) {
   void params;
   const router = useRouter();
   const { isAuthenticated, user, refresh } = useCurrentUser();
-  const { mutateAsync, isPending } = useOnboardingMutation();
+  const { mutateAsync: signupMutateAsync, isPending: isSignupPending } = useSignupMutation();
+  const { mutateAsync: onboardMutateAsync, isPending: isOnboardPending } = useOnboardingMutation();
+  const isPending = isSignupPending || isOnboardPending;
 
   const {
     register,
@@ -92,44 +95,47 @@ export default function SignupPage({ params }: SignupPageProps) {
     async (values: SignupFormValues) => {
       const supabase = getSupabaseBrowserClient();
 
-      // Step 1: Supabase Auth 계정 생성 (자동 로그인 포함)
-      const { data: signUpData, error: signUpError } =
-        await supabase.auth.signUp({
+      // Step 1: 서버에서 계정 생성 (admin API, 이메일 발송 없음)
+      try {
+        await signupMutateAsync({
+          email: values.email,
+          password: values.password,
+        });
+      } catch (error) {
+        const msg = extractApiErrorMessage(error, "").toLowerCase();
+        const isConflict = msg.includes("already") || msg.includes("duplicate");
+        setError("root", {
+          message: isConflict
+            ? "이미 사용 중인 이메일입니다. 다른 이메일을 사용해주세요."
+            : extractApiErrorMessage(error, "계정 생성에 실패했습니다."),
+        });
+        return;
+      }
+
+      // Step 2: 비밀번호로 즉시 로그인하여 세션 획득
+      const { data: signInData, error: signInError } =
+        await supabase.auth.signInWithPassword({
           email: values.email,
           password: values.password,
         });
 
-      if (signUpError) {
-        const msg = signUpError.message.toLowerCase();
-        const isConflict =
-          msg.includes("already") ||
-          msg.includes("database error saving new user");
+      if (signInError || !signInData.session) {
         setError("root", {
-          message: isConflict
-            ? "이미 사용 중인 이메일입니다. 다른 이메일을 사용해주세요."
-            : signUpError.message,
+          message: "로그인에 실패했습니다. 다시 시도해주세요.",
         });
         return;
       }
 
-      if (!signUpData.session) {
-        setError("root", {
-          message:
-            "이메일 인증이 필요합니다. 받은 편지함을 확인해주세요. (Supabase 대시보드 → Authentication → Providers → Email → Confirm email OFF)",
-        });
-        return;
-      }
-
-      // Step 2: 프로필 생성 (역할·이름·전화번호·약관)
+      // Step 3: 프로필·약관 생성 (온보딩)
       try {
-        const result = await mutateAsync({
+        const result = await onboardMutateAsync({
           data: {
             role: values.role,
             name: values.name,
             phone: values.phone,
             termsAgreed: true,
           },
-          token: signUpData.session.access_token,
+          token: signInData.session.access_token,
         });
 
         await refresh();
@@ -143,7 +149,7 @@ export default function SignupPage({ params }: SignupPageProps) {
         });
       }
     },
-    [mutateAsync, refresh, router, setError],
+    [signupMutateAsync, onboardMutateAsync, refresh, router, setError],
   );
 
   return (
