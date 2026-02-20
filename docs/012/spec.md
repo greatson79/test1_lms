@@ -118,6 +118,11 @@
 - `is_active = false`인 항목은 코스 생성/수정 시 선택 불가하지만, 기존 코스의 데이터는 유지된다.
 - 카테고리/난이도의 `name`은 UNIQUE 제약이 있어 중복 이름 생성/수정이 불가하다.
 
+> **스키마 추가 필요 (구현 시 마이그레이션 필요):**
+> - `warning` 액션 처리를 위한 `warnings` 테이블 (user_id, report_id, warned_at) — 현재 DB 스키마 미포함
+> - `restrict_account` 액션 처리를 위한 `profiles.is_active` 컬럼 — 현재 DB 스키마 미포함
+> - `invalidate_submission` 액션은 현재 `submission_status` ENUM에 별도 `invalidated` 값이 없으므로, `score = NULL`, `status = 'submitted'`로 초기화하는 방식으로 처리하거나 ENUM 확장이 필요하다.
+
 ---
 
 ## Sequence Diagram
@@ -166,10 +171,13 @@ group 12-2. 신고 처리
   Database --> BE: 업데이트 완료
 
   alt action = 'invalidate_submission'
-    BE -> Database: UPDATE submissions\nSET status='graded', score=0\nWHERE id = report.target_id
+    note over BE: score=NULL, status='submitted' 초기화\n(별도 invalidated 상태 미지원 — 추후 ENUM 확장 필요)
+    BE -> Database: UPDATE submissions\nSET status='submitted', score=NULL, feedback=NULL\nWHERE id = report.target_id
   else action = 'restrict_account'
+    note over BE: profiles.is_active 컬럼 추가 마이그레이션 필요
     BE -> Database: UPDATE profiles\nSET is_active=false\nWHERE id = report.target_id
   else action = 'warning'
+    note over BE: warnings 테이블 추가 마이그레이션 필요
     BE -> Database: INSERT warnings\n(user_id, report_id, warned_at)
   end
 

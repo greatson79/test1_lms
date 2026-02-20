@@ -57,7 +57,6 @@ Instructor (인증된 강사)
    - `draft` 상태 → "게시하기" 버튼 → `published` 전환 (학습자에게 노출)
    - `published` 상태 → "수동 마감" 버튼 → `closed` 전환
 2. FE가 `PATCH /api/instructor/assignments/:assignmentId/status`를 호출한다 (`{ status: 'published' | 'closed' }`).
-   - 참고: UC-009 API 설계에서 상태 전환은 `PUT /api/instructor/assignments/:assignmentId`에 통합하거나 별도 엔드포인트로 처리한다.
 3. BE가 소유권을 검증하고 허용 상태 전환 여부를 확인한다.
    - 허용: `draft → published`, `published → closed`
    - 불허: `closed → *`, `published → draft`, `draft → closed`

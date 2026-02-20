@@ -23,7 +23,7 @@ Instructor (인증된 강사)
 ## Main Scenario
 
 1. 강사가 과제 상세 페이지에서 제출물 목록을 확인한다.
-2. FE가 `GET /api/instructor/submissions?assignmentId=:assignmentId`를 호출하여 제출물 목록을 불러온다.
+2. FE가 `GET /api/instructor/assignments/:assignmentId/submissions`를 호출하여 제출물 목록을 불러온다.
 3. BE가 해당 과제에 속한 제출물 목록 (learner 정보, 제출 시각, 현재 status 포함)을 반환한다.
 4. 강사가 특정 제출물을 선택한다.
 5. FE가 제출물 상세(content_text, content_link, submitted_at, 기존 피드백 등)를 렌더링한다.
@@ -93,7 +93,7 @@ participant BE
 database Database
 
 Instructor -> FE: 과제 제출물 목록 접근
-FE -> BE: GET /api/instructor/submissions\n?assignmentId=:assignmentId
+FE -> BE: GET /api/instructor/assignments/:assignmentId/submissions
 BE -> Database: SELECT submissions\nJOIN profiles (learner)\nWHERE assignment_id = ?
 Database --> BE: 제출물 목록 (status, submitted_at 포함)
 BE --> FE: 200 {submissions}

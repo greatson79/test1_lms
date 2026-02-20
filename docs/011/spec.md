@@ -25,15 +25,17 @@ Instructor (인증된 강사)
 
 DB의 `status` 컬럼 값과 별도로, 클라이언트 및 API 응답에서 `effective_status`를 계산하여 사용한다.
 
-| DB status | 조건 | effective_status |
-|---|---|---|
-| `closed` | (무조건) | `closed` (강사 수동 마감) |
-| `published` | `NOW() > due_at` | `closed` (자동 마감) |
-| `published` | `NOW() <= due_at` | `published` (진행 중) |
-| `draft` | (무조건) | `draft` |
+| DB status | 조건 | effective_status | 설명 |
+|---|---|---|---|
+| `closed` | (무조건) | `closed` | 강사 수동 마감, 제출 불가 |
+| `published` | `NOW() > due_at` AND `allow_late = false` | `closed` | 자동 마감, 제출 불가 |
+| `published` | `NOW() > due_at` AND `allow_late = true` | `overdue` | 지각 제출 허용 중, 제출 가능 (`is_late = true` 처리) |
+| `published` | `NOW() <= due_at` | `published` | 진행 중, 제출 가능 |
+| `draft` | (무조건) | `draft` | 미게시, 학습자 비노출 |
 
-- `effective_status = 'closed'`이면 학습자의 제출이 불가능하다.
-- `effective_status = 'closed'`이더라도 강사의 채점은 허용된다.
+- `effective_status = 'closed'`이면 학습자의 신규 제출이 불가능하다.
+- `effective_status = 'overdue'`이면 제출은 가능하되 `is_late = true`로 기록된다.
+- `effective_status = 'closed'` 또는 `overdue`이더라도 강사의 채점은 허용된다.
 
 ---
 
@@ -91,7 +93,8 @@ DB의 `status` 컬럼 값과 별도로, 클라이언트 및 API 응답에서 `ef
 - 과제의 상태 전환은 `draft → published → closed` 단방향이다. 역방향 전환(`closed → published` 등)은 허용하지 않는다.
 - `effective_status`는 DB `status`와 `due_at`을 조합하여 서버에서 계산하며, 클라이언트는 이 값을 기준으로 UI를 렌더링한다.
 - `effective_status = 'closed'`인 과제는 학습자의 신규 제출이 불가능하다.
-- `effective_status = 'closed'`이더라도 강사는 기존 제출물에 대한 채점 및 피드백을 수행할 수 있다.
+- `effective_status = 'overdue'`인 과제는 지각 제출이 허용(`allow_late = true`)되며, 제출 시 `is_late = true`로 기록된다.
+- `effective_status = 'closed'` 또는 `overdue`이더라도 강사는 기존 제출물에 대한 채점 및 피드백을 수행할 수 있다.
 - `published` 상태의 과제만 학습자 대시보드 및 코스 상세에 노출된다.
 - 강사는 자신이 소유한 코스의 과제만 상태를 변경할 수 있다.
 - 수동 마감(`closed`)은 `due_at` 도달 여부와 무관하게 즉시 적용된다.
