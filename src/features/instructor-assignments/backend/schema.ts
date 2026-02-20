@@ -29,6 +29,8 @@ export const SubmissionFilterSchema = z.enum(['pending', 'late', 'resubmission']
 
 // --- 응답 스키마 ---
 
+export const EffectiveStatusSchema = z.enum(['draft', 'published', 'overdue', 'closed']);
+
 export const InstructorAssignmentDtoSchema = z.object({
   id: z.string().uuid(),
   courseId: z.string().uuid(),
@@ -39,6 +41,7 @@ export const InstructorAssignmentDtoSchema = z.object({
   allowLate: z.boolean(),
   allowResubmit: z.boolean(),
   status: z.enum(['draft', 'published', 'closed']),
+  effectiveStatus: EffectiveStatusSchema,
   createdAt: z.string(),
   updatedAt: z.string(),
 });
@@ -124,6 +127,7 @@ export const SubmissionDetailResponseSchema = z.object({
 
 // --- 타입 추론 ---
 
+export type EffectiveStatus = z.infer<typeof EffectiveStatusSchema>;
 export type CreateAssignmentBody = z.infer<typeof CreateAssignmentBodySchema>;
 export type UpdateAssignmentBody = z.infer<typeof UpdateAssignmentBodySchema>;
 export type UpdateAssignmentStatusBody = z.infer<typeof UpdateAssignmentStatusBodySchema>;

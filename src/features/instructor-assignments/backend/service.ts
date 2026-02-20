@@ -20,6 +20,7 @@ import type {
   GradeSubmissionResponse,
   SubmissionDetailDto,
   SubmissionDetailResponse,
+  EffectiveStatus,
 } from './schema';
 
 // --- 내부 Row 타입 ---
@@ -78,9 +79,25 @@ const mapAssignmentRow = (row: AssignmentRow): InstructorAssignmentDto => ({
   allowLate: row.allow_late,
   allowResubmit: row.allow_resubmit,
   status: row.status,
+  effectiveStatus: computeEffectiveStatus(row.status, row.due_at, row.allow_late),
   createdAt: row.created_at,
   updatedAt: row.updated_at,
 });
+
+// DB status + due_at + allow_late 조합으로 유효 상태를 계산한다.
+// now <= due_at: published / now > due_at + allow_late: overdue / now > due_at: closed
+export const computeEffectiveStatus = (
+  status: 'draft' | 'published' | 'closed',
+  dueAt: string,
+  allowLate: boolean,
+): EffectiveStatus => {
+  if (status === 'draft') return 'draft';
+  if (status === 'closed') return 'closed';
+  const now = new Date();
+  const due = new Date(dueAt);
+  if (now <= due) return 'published';
+  return allowLate ? 'overdue' : 'closed';
+};
 
 // 허용: draft → published, published → closed
 // 불허: 그 외 모든 전환 (closed → *, published → draft, draft → closed)
