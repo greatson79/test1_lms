@@ -14,7 +14,8 @@ import { useUpdateAssignmentStatusMutation } from '@/features/instructor-assignm
 import { useInstructorAssignmentSubmissionsQuery } from '@/features/instructor-assignments/hooks/useInstructorAssignmentSubmissionsQuery';
 import { AssignmentStatusButton } from '@/features/instructor-assignments/components/assignment-status-button';
 import { SubmissionTable } from '@/features/instructor-assignments/components/submission-table';
-import type { SubmissionFilter, InstructorAssignmentDto } from '@/features/instructor-assignments/lib/dto';
+import { GradePanel } from '@/features/instructor-assignments/components/grade-panel';
+import type { SubmissionFilter, InstructorAssignmentDto, InstructorSubmissionItem } from '@/features/instructor-assignments/lib/dto';
 
 type InstructorAssignmentPageProps = {
   params: Promise<{ assignmentId: string }>;
@@ -45,10 +46,19 @@ export default function InstructorAssignmentPage({ params }: InstructorAssignmen
   const { data, isLoading, isError, error, refetch } = useInstructorAssignmentQuery(assignmentId);
   const { mutate: changeStatus, isPending } = useUpdateAssignmentStatusMutation(assignmentId);
   const [submissionFilter, setSubmissionFilter] = useState<SubmissionFilter>(undefined);
+  const [selectedSubmission, setSelectedSubmission] = useState<InstructorSubmissionItem | null>(null);
   const {
     data: submissionsData,
     isLoading: isSubmissionsLoading,
   } = useInstructorAssignmentSubmissionsQuery(assignmentId, submissionFilter);
+
+  const handleSelectSubmission = (submission: InstructorSubmissionItem) => {
+    setSelectedSubmission(submission);
+  };
+
+  const handleClosePanel = () => {
+    setSelectedSubmission(null);
+  };
 
   if (isRoleLoading || !isAllowed) return null;
 
@@ -152,13 +162,26 @@ export default function InstructorAssignmentPage({ params }: InstructorAssignmen
 
           <section className="flex flex-col gap-4">
             <h3 className="text-lg font-semibold text-slate-900">제출물</h3>
-            <SubmissionTable
-              submissions={submissionsData?.submissions ?? []}
-              totalCount={submissionsData?.totalCount ?? 0}
-              currentFilter={submissionFilter}
-              onFilterChange={setSubmissionFilter}
-              isLoading={isSubmissionsLoading}
-            />
+            <div className={selectedSubmission ? 'grid grid-cols-1 gap-6 lg:grid-cols-2' : ''}>
+              <SubmissionTable
+                submissions={submissionsData?.submissions ?? []}
+                totalCount={submissionsData?.totalCount ?? 0}
+                currentFilter={submissionFilter}
+                onFilterChange={setSubmissionFilter}
+                isLoading={isSubmissionsLoading}
+                onSelectSubmission={handleSelectSubmission}
+                selectedSubmissionId={selectedSubmission?.id}
+                allowResubmit={data?.assignment.allowResubmit}
+              />
+              {selectedSubmission && (
+                <GradePanel
+                  submission={selectedSubmission}
+                  assignmentId={assignmentId}
+                  allowResubmit={data?.assignment.allowResubmit ?? false}
+                  onClose={handleClosePanel}
+                />
+              )}
+            </div>
           </section>
         </div>
       ) : null}

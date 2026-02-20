@@ -67,6 +67,61 @@ export const InstructorSubmissionListResponseSchema = z.object({
   totalCount: z.number().int().nonnegative(),
 });
 
+// --- 채점 요청 스키마 ---
+
+export const GradeSubmissionBodySchema = z.object({
+  score: z
+    .number()
+    .int('점수는 정수여야 합니다.')
+    .min(0, '점수는 0 이상이어야 합니다.')
+    .max(100, '점수는 100 이하여야 합니다.'),
+  feedback: z.string().min(1, '피드백을 입력해 주세요.'),
+});
+
+// --- 재제출 요청 스키마 ---
+
+export const RequestResubmissionBodySchema = z.object({
+  feedback: z.string().min(1, '피드백을 입력해 주세요.'),
+});
+
+// --- 채점/재제출 응답 DTO ---
+
+export const GradedSubmissionDtoSchema = z.object({
+  id: z.string().uuid(),
+  assignmentId: z.string().uuid(),
+  learnerId: z.string().uuid(),
+  status: z.enum(['submitted', 'graded', 'resubmission_required', 'invalidated']),
+  score: z.number().int().nullable(),
+  feedback: z.string().nullable(),
+  gradedAt: z.string().nullable(),
+  submittedAt: z.string(),
+});
+
+export const GradeSubmissionResponseSchema = z.object({
+  submission: GradedSubmissionDtoSchema,
+});
+
+// --- 제출물 상세 DTO ---
+
+export const SubmissionDetailDtoSchema = z.object({
+  id: z.string().uuid(),
+  assignmentId: z.string().uuid(),
+  learnerId: z.string().uuid(),
+  learnerName: z.string(),
+  contentText: z.string().nullable(),
+  contentLink: z.string().nullable(),
+  isLate: z.boolean(),
+  status: z.enum(['submitted', 'graded', 'resubmission_required', 'invalidated']),
+  score: z.number().int().nullable(),
+  feedback: z.string().nullable(),
+  submittedAt: z.string(),
+  gradedAt: z.string().nullable(),
+});
+
+export const SubmissionDetailResponseSchema = z.object({
+  submission: SubmissionDetailDtoSchema,
+});
+
 // --- 타입 추론 ---
 
 export type CreateAssignmentBody = z.infer<typeof CreateAssignmentBodySchema>;
@@ -78,3 +133,9 @@ export type InstructorAssignmentResponse = z.infer<typeof InstructorAssignmentRe
 export type InstructorCourseAssignmentsResponse = z.infer<typeof InstructorCourseAssignmentsResponseSchema>;
 export type InstructorSubmissionItem = z.infer<typeof InstructorSubmissionItemSchema>;
 export type InstructorSubmissionListResponse = z.infer<typeof InstructorSubmissionListResponseSchema>;
+export type GradeSubmissionBody = z.infer<typeof GradeSubmissionBodySchema>;
+export type RequestResubmissionBody = z.infer<typeof RequestResubmissionBodySchema>;
+export type GradedSubmissionDto = z.infer<typeof GradedSubmissionDtoSchema>;
+export type GradeSubmissionResponse = z.infer<typeof GradeSubmissionResponseSchema>;
+export type SubmissionDetailDto = z.infer<typeof SubmissionDetailDtoSchema>;
+export type SubmissionDetailResponse = z.infer<typeof SubmissionDetailResponseSchema>;

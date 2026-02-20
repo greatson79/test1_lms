@@ -27,6 +27,9 @@ type SubmissionTableProps = {
   currentFilter: SubmissionFilter;
   onFilterChange: (filter: SubmissionFilter) => void;
   isLoading: boolean;
+  onSelectSubmission?: (submission: InstructorSubmissionItem) => void;
+  selectedSubmissionId?: string;
+  allowResubmit?: boolean;
 };
 
 const SubmissionStatusBadge = ({ status }: { status: InstructorSubmissionItem['status'] }) => {
@@ -56,6 +59,8 @@ export const SubmissionTable = ({
   currentFilter,
   onFilterChange,
   isLoading,
+  onSelectSubmission,
+  selectedSubmissionId,
 }: SubmissionTableProps) => (
   <div className="flex flex-col gap-4">
     <div className="flex items-center gap-2">
@@ -103,7 +108,17 @@ export const SubmissionTable = ({
             </tr>
           ) : (
             submissions.map((submission) => (
-              <tr key={submission.id} className="hover:bg-slate-50">
+              <tr
+                key={submission.id}
+                onClick={() => onSelectSubmission?.(submission)}
+                className={[
+                  'transition-colors',
+                  onSelectSubmission ? 'cursor-pointer' : '',
+                  selectedSubmissionId === submission.id
+                    ? 'bg-slate-100'
+                    : 'hover:bg-slate-50',
+                ].join(' ')}
+              >
                 <td className="px-4 py-3 font-medium text-slate-900">{submission.learnerName}</td>
                 <td className="px-4 py-3 text-slate-600">
                   {format(new Date(submission.submittedAt), 'yyyy.MM.dd HH:mm', { locale: ko })}

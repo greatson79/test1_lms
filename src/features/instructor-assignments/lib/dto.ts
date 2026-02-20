@@ -8,6 +8,12 @@ export {
   InstructorCourseAssignmentsResponseSchema,
   InstructorSubmissionItemSchema,
   InstructorSubmissionListResponseSchema,
+  GradeSubmissionBodySchema,
+  RequestResubmissionBodySchema,
+  GradedSubmissionDtoSchema,
+  GradeSubmissionResponseSchema,
+  SubmissionDetailDtoSchema,
+  SubmissionDetailResponseSchema,
 } from '@/features/instructor-assignments/backend/schema';
 
 export type {
@@ -20,4 +26,10 @@ export type {
   InstructorCourseAssignmentsResponse,
   InstructorSubmissionItem,
   InstructorSubmissionListResponse,
+  GradeSubmissionBody,
+  RequestResubmissionBody,
+  GradedSubmissionDto,
+  GradeSubmissionResponse,
+  SubmissionDetailDto,
+  SubmissionDetailResponse,
 } from '@/features/instructor-assignments/backend/schema';

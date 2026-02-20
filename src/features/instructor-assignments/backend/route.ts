@@ -17,7 +17,14 @@ import {
   listAssignmentSubmissions,
   getInstructorAssignment,
   listInstructorCourseAssignments,
+  gradeSubmission,
+  requestResubmission,
+  getSubmissionDetail,
 } from './service';
+import {
+  GradeSubmissionBodySchema,
+  RequestResubmissionBodySchema,
+} from './schema';
 
 export const registerInstructorAssignmentRoutes = (app: Hono<AppEnv>) => {
   // GET /api/instructor/courses/:courseId/assignments
@@ -205,6 +212,95 @@ export const registerInstructorAssignmentRoutes = (app: Hono<AppEnv>) => {
       currentUser.id,
       filterParsed.data,
     );
+    return respond(c, result);
+  });
+
+  // GET /api/instructor/submissions/:submissionId
+  app.get('/api/instructor/submissions/:submissionId', withAuth(), async (c) => {
+    const currentUser = getCurrentUser(c);
+
+    if (!currentUser) {
+      return respond(c, failure(401, instructorAssignmentErrorCodes.forbidden, '인증이 필요합니다.'));
+    }
+
+    if (currentUser.role !== 'instructor') {
+      return respond(c, failure(403, instructorAssignmentErrorCodes.forbidden, '강사만 접근할 수 있습니다.'));
+    }
+
+    const submissionId = c.req.param('submissionId');
+
+    if (!UUID_REGEX.test(submissionId)) {
+      return respond(c, failure(400, instructorAssignmentErrorCodes.notFound, '올바르지 않은 제출물 ID입니다.'));
+    }
+
+    const supabase = getSupabase(c);
+    const result = await getSubmissionDetail(supabase, submissionId, currentUser.id);
+    return respond(c, result);
+  });
+
+  // PATCH /api/instructor/submissions/:submissionId/grade
+  app.patch('/api/instructor/submissions/:submissionId/grade', withAuth(), async (c) => {
+    const currentUser = getCurrentUser(c);
+
+    if (!currentUser) {
+      return respond(c, failure(401, instructorAssignmentErrorCodes.forbidden, '인증이 필요합니다.'));
+    }
+
+    if (currentUser.role !== 'instructor') {
+      return respond(c, failure(403, instructorAssignmentErrorCodes.forbidden, '강사만 접근할 수 있습니다.'));
+    }
+
+    const submissionId = c.req.param('submissionId');
+
+    if (!UUID_REGEX.test(submissionId)) {
+      return respond(c, failure(400, instructorAssignmentErrorCodes.notFound, '올바르지 않은 제출물 ID입니다.'));
+    }
+
+    const rawBody = await c.req.json().catch(() => null);
+    const parsed = GradeSubmissionBodySchema.safeParse(rawBody);
+
+    if (!parsed.success) {
+      return respond(
+        c,
+        failure(400, instructorAssignmentErrorCodes.fetchError, '올바르지 않은 요청입니다.', parsed.error.format()),
+      );
+    }
+
+    const supabase = getSupabase(c);
+    const result = await gradeSubmission(supabase, submissionId, currentUser.id, parsed.data);
+    return respond(c, result);
+  });
+
+  // PATCH /api/instructor/submissions/:submissionId/request-resubmission
+  app.patch('/api/instructor/submissions/:submissionId/request-resubmission', withAuth(), async (c) => {
+    const currentUser = getCurrentUser(c);
+
+    if (!currentUser) {
+      return respond(c, failure(401, instructorAssignmentErrorCodes.forbidden, '인증이 필요합니다.'));
+    }
+
+    if (currentUser.role !== 'instructor') {
+      return respond(c, failure(403, instructorAssignmentErrorCodes.forbidden, '강사만 접근할 수 있습니다.'));
+    }
+
+    const submissionId = c.req.param('submissionId');
+
+    if (!UUID_REGEX.test(submissionId)) {
+      return respond(c, failure(400, instructorAssignmentErrorCodes.notFound, '올바르지 않은 제출물 ID입니다.'));
+    }
+
+    const rawBody = await c.req.json().catch(() => null);
+    const parsed = RequestResubmissionBodySchema.safeParse(rawBody);
+
+    if (!parsed.success) {
+      return respond(
+        c,
+        failure(400, instructorAssignmentErrorCodes.fetchError, '올바르지 않은 요청입니다.', parsed.error.format()),
+      );
+    }
+
+    const supabase = getSupabase(c);
+    const result = await requestResubmission(supabase, submissionId, currentUser.id, parsed.data);
     return respond(c, result);
   });
 };

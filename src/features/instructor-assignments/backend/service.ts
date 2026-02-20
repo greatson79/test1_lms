@@ -14,6 +14,12 @@ import type {
   InstructorCourseAssignmentsResponse,
   InstructorSubmissionItem,
   InstructorSubmissionListResponse,
+  GradeSubmissionBody,
+  RequestResubmissionBody,
+  GradedSubmissionDto,
+  GradeSubmissionResponse,
+  SubmissionDetailDto,
+  SubmissionDetailResponse,
 } from './schema';
 
 // --- 내부 Row 타입 ---
@@ -334,6 +340,268 @@ export const getInstructorAssignment = async (
   if (!ownershipResult.ok) return ownershipResult as ErrorResult<InstructorAssignmentServiceError>;
 
   return success({ assignment: mapAssignmentRow(ownershipResult.data) });
+};
+
+// --- 제출물 소유권 검증 헬퍼 ---
+
+type SubmissionOwnershipData = {
+  submissionId: string;
+  assignmentId: string;
+  learnerId: string;
+  currentStatus: 'submitted' | 'graded' | 'resubmission_required' | 'invalidated';
+  score: number | null;
+  feedback: string | null;
+  gradedAt: string | null;
+  submittedAt: string;
+  allowResubmit: boolean;
+};
+
+const SUBMISSION_SELECT_FOR_GRADE = `
+  id,
+  assignment_id,
+  learner_id,
+  status,
+  score,
+  feedback,
+  graded_at,
+  submitted_at
+` as const;
+
+const verifySubmissionOwnership = async (
+  supabase: AppSupabaseClient,
+  submissionId: string,
+  instructorId: string,
+): Promise<HandlerResult<SubmissionOwnershipData, InstructorAssignmentServiceError>> => {
+  const { data: submissionData, error: submissionError } = await supabase
+    .from('submissions')
+    .select(SUBMISSION_SELECT_FOR_GRADE)
+    .eq('id', submissionId)
+    .maybeSingle();
+
+  if (submissionError) {
+    return failure(500, instructorAssignmentErrorCodes.fetchError, submissionError.message);
+  }
+
+  if (!submissionData) {
+    return failure(404, instructorAssignmentErrorCodes.notFound, '제출물을 찾을 수 없습니다.');
+  }
+
+  const submission = submissionData as unknown as {
+    id: string;
+    assignment_id: string;
+    learner_id: string;
+    status: SubmissionOwnershipData['currentStatus'];
+    score: number | null;
+    feedback: string | null;
+    graded_at: string | null;
+    submitted_at: string;
+  };
+
+  const { data: assignmentData, error: assignmentError } = await supabase
+    .from('assignments')
+    .select('id, course_id, allow_resubmit')
+    .eq('id', submission.assignment_id)
+    .maybeSingle();
+
+  if (assignmentError) {
+    return failure(500, instructorAssignmentErrorCodes.fetchError, assignmentError.message);
+  }
+
+  if (!assignmentData) {
+    return failure(404, instructorAssignmentErrorCodes.notFound, '과제를 찾을 수 없습니다.');
+  }
+
+  const assignment = assignmentData as unknown as {
+    id: string;
+    course_id: string;
+    allow_resubmit: boolean;
+  };
+
+  const { data: courseData, error: courseError } = await supabase
+    .from('courses')
+    .select('id, instructor_id')
+    .eq('id', assignment.course_id)
+    .maybeSingle();
+
+  if (courseError) {
+    return failure(500, instructorAssignmentErrorCodes.fetchError, courseError.message);
+  }
+
+  if (!courseData) {
+    return failure(404, instructorAssignmentErrorCodes.notFound, '코스를 찾을 수 없습니다.');
+  }
+
+  const course = courseData as unknown as CourseOwnerRow;
+
+  if (course.instructor_id !== instructorId) {
+    return failure(403, instructorAssignmentErrorCodes.forbidden, '해당 제출물에 대한 권한이 없습니다.');
+  }
+
+  return success({
+    submissionId: submission.id,
+    assignmentId: submission.assignment_id,
+    learnerId: submission.learner_id,
+    currentStatus: submission.status,
+    score: submission.score,
+    feedback: submission.feedback,
+    gradedAt: submission.graded_at,
+    submittedAt: submission.submitted_at,
+    allowResubmit: assignment.allow_resubmit,
+  });
+};
+
+const mapGradedSubmissionRow = (
+  data: SubmissionOwnershipData,
+  overrides: {
+    status: GradedSubmissionDto['status'];
+    score: number | null;
+    feedback: string;
+    gradedAt: string | null;
+  },
+): GradedSubmissionDto => ({
+  id: data.submissionId,
+  assignmentId: data.assignmentId,
+  learnerId: data.learnerId,
+  status: overrides.status,
+  score: overrides.score,
+  feedback: overrides.feedback,
+  gradedAt: overrides.gradedAt,
+  submittedAt: data.submittedAt,
+});
+
+export const gradeSubmission = async (
+  supabase: AppSupabaseClient,
+  submissionId: string,
+  instructorId: string,
+  body: GradeSubmissionBody,
+): Promise<HandlerResult<GradeSubmissionResponse, InstructorAssignmentServiceError>> => {
+  const ownershipResult = await verifySubmissionOwnership(supabase, submissionId, instructorId);
+  if (!ownershipResult.ok) return ownershipResult as ErrorResult<InstructorAssignmentServiceError>;
+
+  const gradedAt = new Date().toISOString();
+
+  const { error } = await supabase
+    .from('submissions')
+    .update({
+      status: 'graded',
+      score: body.score,
+      feedback: body.feedback,
+      graded_at: gradedAt,
+    })
+    .eq('id', submissionId);
+
+  if (error) {
+    return failure(500, instructorAssignmentErrorCodes.fetchError, error.message);
+  }
+
+  return success({
+    submission: mapGradedSubmissionRow(ownershipResult.data, {
+      status: 'graded',
+      score: body.score,
+      feedback: body.feedback,
+      gradedAt,
+    }),
+  });
+};
+
+export const requestResubmission = async (
+  supabase: AppSupabaseClient,
+  submissionId: string,
+  instructorId: string,
+  body: RequestResubmissionBody,
+): Promise<HandlerResult<GradeSubmissionResponse, InstructorAssignmentServiceError>> => {
+  const ownershipResult = await verifySubmissionOwnership(supabase, submissionId, instructorId);
+  if (!ownershipResult.ok) return ownershipResult as ErrorResult<InstructorAssignmentServiceError>;
+
+  if (!ownershipResult.data.allowResubmit) {
+    return failure(
+      400,
+      instructorAssignmentErrorCodes.resubmitNotAllowed,
+      '재제출을 허용하지 않는 과제입니다.',
+    );
+  }
+
+  const { error } = await supabase
+    .from('submissions')
+    .update({
+      status: 'resubmission_required',
+      feedback: body.feedback,
+      score: null,
+    })
+    .eq('id', submissionId);
+
+  if (error) {
+    return failure(500, instructorAssignmentErrorCodes.fetchError, error.message);
+  }
+
+  return success({
+    submission: mapGradedSubmissionRow(ownershipResult.data, {
+      status: 'resubmission_required',
+      score: null,
+      feedback: body.feedback,
+      gradedAt: null,
+    }),
+  });
+};
+
+export const getSubmissionDetail = async (
+  supabase: AppSupabaseClient,
+  submissionId: string,
+  instructorId: string,
+): Promise<HandlerResult<SubmissionDetailResponse, InstructorAssignmentServiceError>> => {
+  const ownershipResult = await verifySubmissionOwnership(supabase, submissionId, instructorId);
+  if (!ownershipResult.ok) return ownershipResult as ErrorResult<InstructorAssignmentServiceError>;
+
+  const { data: detailData, error: detailError } = await supabase
+    .from('submissions')
+    .select('id, assignment_id, learner_id, content_text, content_link, is_late, status, score, feedback, submitted_at, graded_at')
+    .eq('id', submissionId)
+    .maybeSingle();
+
+  if (detailError) {
+    return failure(500, instructorAssignmentErrorCodes.fetchError, detailError.message);
+  }
+
+  if (!detailData) {
+    return failure(404, instructorAssignmentErrorCodes.notFound, '제출물을 찾을 수 없습니다.');
+  }
+
+  const detail = detailData as unknown as {
+    id: string;
+    assignment_id: string;
+    learner_id: string;
+    content_text: string | null;
+    content_link: string | null;
+    is_late: boolean;
+    status: SubmissionDetailDto['status'];
+    score: number | null;
+    feedback: string | null;
+    submitted_at: string;
+    graded_at: string | null;
+  };
+
+  const { data: profileData } = await supabase
+    .from('profiles')
+    .select('name')
+    .eq('id', detail.learner_id)
+    .maybeSingle();
+
+  return success({
+    submission: {
+      id: detail.id,
+      assignmentId: detail.assignment_id,
+      learnerId: detail.learner_id,
+      learnerName: (profileData?.name as string | null) ?? '알 수 없음',
+      contentText: detail.content_text,
+      contentLink: detail.content_link,
+      isLate: detail.is_late,
+      status: detail.status,
+      score: detail.score,
+      feedback: detail.feedback,
+      submittedAt: detail.submitted_at,
+      gradedAt: detail.graded_at,
+    },
+  });
 };
 
 export const listInstructorCourseAssignments = async (
