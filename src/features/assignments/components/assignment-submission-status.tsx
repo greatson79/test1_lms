@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import { match } from 'ts-pattern';
 import { format } from 'date-fns';
 import { ko } from 'date-fns/locale';
@@ -8,10 +9,13 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
+import { SubmissionForm } from '@/features/submissions/components/submission-form';
 import type { AssignmentDto, MySubmissionDto } from '@/features/assignments/lib/dto';
 
 type AssignmentSubmissionStatusProps = {
   assignment: AssignmentDto;
+  courseId: string;
+  assignmentId: string;
 };
 
 type SubmissionState =
@@ -129,7 +133,12 @@ const SubmissionHistoryCard = ({ submission }: { submission: MySubmissionDto }) 
   );
 };
 
-export const AssignmentSubmissionStatus = ({ assignment }: AssignmentSubmissionStatusProps) => {
+export const AssignmentSubmissionStatus = ({
+  assignment,
+  courseId,
+  assignmentId,
+}: AssignmentSubmissionStatusProps) => {
+  const [showForm, setShowForm] = useState(false);
   const state = resolveSubmissionState(assignment);
   const isPastDue = new Date() > new Date(assignment.dueAt);
 
@@ -158,42 +167,64 @@ export const AssignmentSubmissionStatus = ({ assignment }: AssignmentSubmissionS
             </div>
           </div>
         ))
-        .with({ type: 'no_submission' }, () => (
-          <div className="flex items-center gap-3 rounded-lg border border-orange-200 bg-orange-50 p-4">
-            <AlertCircle className="h-5 w-5 text-orange-400 shrink-0" />
-            <div className="flex-1">
-              <p className="text-sm font-medium text-orange-700">아직 제출하지 않은 과제입니다</p>
-            </div>
-            <Button
-              size="sm"
-              disabled
-              className="shrink-0"
-              title="UC-005 구현 후 활성화 예정"
-            >
-              제출하기
-            </Button>
-          </div>
-        ))
-        .with({ type: 'resubmit' }, ({ submission }) => (
-          <div className="space-y-3">
-            <div className="flex items-center gap-3 rounded-lg border border-yellow-200 bg-yellow-50 p-4">
-              <RefreshCw className="h-5 w-5 text-yellow-500 shrink-0" />
+        .with({ type: 'no_submission' }, () =>
+          showForm ? (
+            <SubmissionForm
+              courseId={courseId}
+              assignmentId={assignmentId}
+              mode="submit"
+              onSuccess={() => setShowForm(false)}
+              onCancel={() => setShowForm(false)}
+            />
+          ) : (
+            <div className="flex items-center gap-3 rounded-lg border border-orange-200 bg-orange-50 p-4">
+              <AlertCircle className="h-5 w-5 text-orange-400 shrink-0" />
               <div className="flex-1">
-                <p className="text-sm font-medium text-yellow-700">재제출이 요청되었습니다</p>
-                <p className="text-xs text-yellow-600 mt-0.5">
-                  강사의 피드백을 확인하고 다시 제출해 주세요.
-                </p>
+                <p className="text-sm font-medium text-orange-700">아직 제출하지 않은 과제입니다</p>
               </div>
               <Button
                 size="sm"
-                variant="outline"
-                disabled
-                className="shrink-0 border-yellow-400 text-yellow-700"
-                title="UC-005 구현 후 활성화 예정"
+                className="shrink-0"
+                onClick={() => setShowForm(true)}
               >
-                재제출하기
+                제출하기
               </Button>
             </div>
+          ),
+        )
+        .with({ type: 'resubmit' }, ({ submission }) => (
+          <div className="space-y-3">
+            {showForm ? (
+              <SubmissionForm
+                courseId={courseId}
+                assignmentId={assignmentId}
+                mode="resubmit"
+                defaultValues={{
+                  contentText: submission.contentText ?? '',
+                  contentLink: submission.contentLink ?? undefined,
+                }}
+                onSuccess={() => setShowForm(false)}
+                onCancel={() => setShowForm(false)}
+              />
+            ) : (
+              <div className="flex items-center gap-3 rounded-lg border border-yellow-200 bg-yellow-50 p-4">
+                <RefreshCw className="h-5 w-5 text-yellow-500 shrink-0" />
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-yellow-700">재제출이 요청되었습니다</p>
+                  <p className="text-xs text-yellow-600 mt-0.5">
+                    강사의 피드백을 확인하고 다시 제출해 주세요.
+                  </p>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="shrink-0 border-yellow-400 text-yellow-700"
+                  onClick={() => setShowForm(true)}
+                >
+                  재제출하기
+                </Button>
+              </div>
+            )}
             <SubmissionHistoryCard submission={submission} />
           </div>
         ))

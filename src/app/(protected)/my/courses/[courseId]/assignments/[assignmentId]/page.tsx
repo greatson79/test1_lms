@@ -153,7 +153,11 @@ export default function AssignmentDetailPage({ params }: AssignmentDetailPagePro
 
         <div>
           <h2 className="text-base font-semibold text-slate-900 mb-4">제출 현황</h2>
-          <AssignmentSubmissionStatus assignment={assignment} />
+          <AssignmentSubmissionStatus
+            assignment={assignment}
+            courseId={courseId}
+            assignmentId={assignmentId}
+          />
         </div>
       </div>
     </main>
