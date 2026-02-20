@@ -22,6 +22,7 @@ export type AppVariables = {
   logger: AppLogger;
   config: AppConfig;
   currentUser: CurrentUser | undefined;
+  validatedBody: unknown;
 };
 
 export type AppEnv = {
@@ -35,6 +36,7 @@ export const contextKeys = {
   logger: 'logger',
   config: 'config',
   currentUser: 'currentUser',
+  validatedBody: 'validatedBody',
 } as const satisfies Record<keyof AppVariables, keyof AppVariables>;
 
 export const getSupabase = (c: AppContext) =>
@@ -48,3 +50,6 @@ export const getConfig = (c: AppContext) =>
 
 export const getCurrentUser = (c: AppContext) =>
   c.get(contextKeys.currentUser) as CurrentUser | undefined;
+
+export const getValidatedBody = <T>(c: AppContext): T =>
+  c.get(contextKeys.validatedBody) as T;
