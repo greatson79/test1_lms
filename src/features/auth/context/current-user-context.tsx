@@ -9,11 +9,11 @@ import {
   type ReactNode,
 } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { match, P } from "ts-pattern";
 import { getSupabaseBrowserClient } from "@/lib/supabase/browser-client";
 import type {
   CurrentUserContextValue,
   CurrentUserSnapshot,
+  UserRole,
 } from "../types";
 
 const CurrentUserContext = createContext<CurrentUserContextValue | null>(null);
@@ -35,29 +35,40 @@ export const CurrentUserProvider = ({
     const supabase = getSupabaseBrowserClient();
 
     try {
-      const result = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
 
-      const nextSnapshot = match(result)
-        .with({ data: { user: P.nonNullable } }, ({ data }) => ({
-          status: "authenticated" as const,
-          user: {
-            id: data.user.id,
-            email: data.user.email,
-            appMetadata: data.user.app_metadata ?? {},
-            userMetadata: data.user.user_metadata ?? {},
-          },
-        }))
-        .otherwise(() => ({ status: "unauthenticated" as const, user: null }));
+      if (!user) {
+        const next: CurrentUserSnapshot = { status: "unauthenticated", user: null };
+        setSnapshot(next);
+        queryClient.setQueryData(["currentUser"], next);
+        return;
+      }
 
-      setSnapshot(nextSnapshot);
-      queryClient.setQueryData(["currentUser"], nextSnapshot);
-    } catch (error) {
-      const fallbackSnapshot: CurrentUserSnapshot = {
-        status: "unauthenticated",
-        user: null,
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("role")
+        .eq("id", user.id)
+        .maybeSingle<{ role: UserRole }>();
+
+      const next: CurrentUserSnapshot = {
+        status: "authenticated",
+        user: {
+          id: user.id,
+          email: user.email ?? null,
+          role: profile?.role ?? null,
+          appMetadata: user.app_metadata ?? {},
+          userMetadata: user.user_metadata ?? {},
+        },
       };
-      setSnapshot(fallbackSnapshot);
-      queryClient.setQueryData(["currentUser"], fallbackSnapshot);
+
+      setSnapshot(next);
+      queryClient.setQueryData(["currentUser"], next);
+    } catch {
+      const next: CurrentUserSnapshot = { status: "unauthenticated", user: null };
+      setSnapshot(next);
+      queryClient.setQueryData(["currentUser"], next);
     }
   }, [queryClient]);
 

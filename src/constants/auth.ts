@@ -5,6 +5,9 @@ const PUBLIC_PREFIXES = ["/_next", "/api", "/favicon", "/static", "/docs", "/ima
 
 export const LOGIN_PATH = "/login";
 export const SIGNUP_PATH = "/signup";
+export const ONBOARDING_PATH = "/onboarding";
+export const LEARNER_HOME_PATH = "/courses";
+export const INSTRUCTOR_HOME_PATH = "/instructor/dashboard";
 export const AUTH_ENTRY_PATHS = [LOGIN_PATH, SIGNUP_PATH] as const;
 export const isAuthEntryPath = (
   pathname: string

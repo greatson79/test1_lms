@@ -10,10 +10,18 @@ export type AppConfig = {
   };
 };
 
+export type UserRole = 'learner' | 'instructor' | 'operator';
+
+export type CurrentUser = {
+  id: string;
+  role: UserRole | null;
+};
+
 export type AppVariables = {
   supabase: SupabaseClient;
   logger: AppLogger;
   config: AppConfig;
+  currentUser: CurrentUser | undefined;
 };
 
 export type AppEnv = {
@@ -26,6 +34,7 @@ export const contextKeys = {
   supabase: 'supabase',
   logger: 'logger',
   config: 'config',
+  currentUser: 'currentUser',
 } as const satisfies Record<keyof AppVariables, keyof AppVariables>;
 
 export const getSupabase = (c: AppContext) =>
@@ -36,3 +45,6 @@ export const getLogger = (c: AppContext) =>
 
 export const getConfig = (c: AppContext) =>
   c.get(contextKeys.config) as AppConfig;
+
+export const getCurrentUser = (c: AppContext) =>
+  c.get(contextKeys.currentUser) as CurrentUser | undefined;
