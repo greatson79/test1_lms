@@ -48,18 +48,24 @@ export default function LoginPage({ params }: LoginPageProps) {
           password: formState.password,
         });
 
-        const nextAction = result.error
-          ? result.error.message ?? "로그인에 실패했습니다."
-          : ("success" as const);
-
-        if (nextAction === "success") {
-          await refresh();
-          const redirectedFrom = searchParams.get("redirectedFrom") ?? "/";
-          router.replace(redirectedFrom);
-        } else {
-          setErrorMessage(nextAction);
+        if (result.error) {
+          const msg = result.error.message.toLowerCase();
+          if (msg.includes("email not confirmed")) {
+            setErrorMessage("이메일 인증이 완료되지 않았습니다. 받은 편지함을 확인해주세요.");
+          } else if (msg.includes("invalid login credentials") || msg.includes("invalid credentials")) {
+            setErrorMessage("이메일 또는 비밀번호가 올바르지 않습니다.");
+          } else if (msg.includes("too many requests")) {
+            setErrorMessage("요청이 너무 많습니다. 잠시 후 다시 시도해주세요.");
+          } else {
+            setErrorMessage("로그인에 실패했습니다.");
+          }
+          return;
         }
-      } catch (error) {
+
+        await refresh();
+        const redirectedFrom = searchParams.get("redirectedFrom") ?? "/";
+        router.replace(redirectedFrom);
+      } catch {
         setErrorMessage("로그인 처리 중 오류가 발생했습니다.");
       } finally {
         setIsSubmitting(false);

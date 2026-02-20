@@ -115,7 +115,7 @@ export default function SignupPage({ params }: SignupPageProps) {
       if (!signUpData.session) {
         setError("root", {
           message:
-            "이메일 인증이 필요합니다. Supabase 대시보드에서 이메일 인증을 비활성화하거나, 받은 편지함을 확인해주세요.",
+            "이메일 인증이 필요합니다. 받은 편지함을 확인해주세요. (Supabase 대시보드 → Authentication → Providers → Email → Confirm email OFF)",
         });
         return;
       }
