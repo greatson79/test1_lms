@@ -296,6 +296,7 @@ src/features/profiles/
 ```
 describe('createProfile')
   ✓ 신규 유저: profiles INSERT + terms_agreements INSERT
+  ✓ phone 없이 이름만 입력 → 정상 생성 (phone 선택 필드)
   ✓ role=learner → 카탈로그 리다이렉트 경로 반환
   ✓ role=instructor → 대시보드 리다이렉트 경로 반환
   ✗ 이미 프로필 존재 → failure(409, PROFILE_ALREADY_EXISTS)
@@ -313,6 +314,7 @@ describe('getMyProfile')
 | Learner 온보딩 완료 | 회원가입 후 /onboarding 진입 | Learner 선택 → 이름·전화번호 입력 → 약관 동의 → 제출 | /courses 로 이동 |
 | Instructor 온보딩 완료 | 회원가입 후 /onboarding 진입 | Instructor 선택 → 입력 → 제출 | /instructor/dashboard 로 이동 |
 | 필수 항목 누락 | /onboarding | 이름 없이 제출 | 이름 필드에 에러 메시지 표시, 제출 차단 |
+| 휴대폰번호 미입력 | /onboarding | 폰 번호 없이 제출 | 정상 처리 (선택 필드) |
 | 약관 미동의 | /onboarding | 약관 미체크 후 제출 | 약관 동의 에러 표시, 제출 차단 |
 | 중복 온보딩 시도 | 이미 프로필 존재 | /onboarding 재접근 | /courses 또는 /instructor/dashboard 로 리다이렉트 |
 
@@ -373,8 +375,11 @@ describe('createCourse')
 
 describe('updateCourseStatus')
   ✓ draft → published
+  ✓ published → draft (수강생 0명)
+  ✓ published → draft (수강생 1명 이상) → success (FE에서 경고 모달 처리, BE는 허용)
   ✓ published → archived
   ✗ archived → published → failure(400, INVALID_STATUS_TRANSITION)
+  ✗ archived → draft → failure(400, INVALID_STATUS_TRANSITION)
   ✗ 소유자 아닌 경우 → failure(403, NOT_COURSE_OWNER)
 ```
 
@@ -387,6 +392,8 @@ describe('updateCourseStatus')
 | 코스 상세 진입 | 카탈로그 표시 중 | 코스 카드 클릭 | about 페이지 진입, 소개·커리큘럼·강사 표시 |
 | 강사 코스 생성 | role=instructor | /instructor/courses/new → 폼 작성 → 제출 | 생성 완료, 목록에 draft 상태로 표시 |
 | 강사 코스 published 전환 | draft 코스 존재 | 코스 편집 → "게시" 버튼 클릭 | status=published, 카탈로그에 노출 |
+| 강사 코스 draft 복귀 (수강생 없음) | published 코스, 수강생 0명 | "임시저장으로 되돌리기" 클릭 | 경고 없이 status=draft 전환, 카탈로그에서 미표시 |
+| 강사 코스 draft 복귀 (수강생 있음) | published 코스, 수강생 1명 이상 | "임시저장으로 되돌리기" 클릭 | 경고 모달("수강생 N명이 있습니다. 계속하시겠습니까?") → 확인 시 draft 전환 |
 | 강사 코스 archived 전환 | published 코스 존재 | "종료" 버튼 클릭 | status=archived, 카탈로그에서 미표시, 신규 수강 불가 |
 
 ---
@@ -560,7 +567,8 @@ describe('submitAssignment')
   ✗ 마감 후 + allow_late=false → failure(400, LATE_SUBMISSION_BLOCKED)
   ✗ assignment.status=closed → failure(400, SUBMISSION_BLOCKED)
   ✗ 이미 제출 + allow_resubmit=false → failure(409, ALREADY_SUBMITTED)
-  ✗ content_text 빈 값 → failure(400, VALIDATION_ERROR)
+  ✗ content_text, content_link 둘 다 빈 값 → failure(400, VALIDATION_ERROR)
+  ✓ content_text 없이 content_link만 입력 → 정상 제출 (Figma, GitHub 링크 등)
   ✗ 수강 중이 아닌 learner → failure(403, NOT_ENROLLED)
 
 describe('resubmitAssignment')
@@ -580,7 +588,9 @@ describe('gradeSubmission')
 **Frontend QA Sheet:**
 | 시나리오 | 사전 조건 | 단계 | 기대 결과 |
 |---|---|---|---|
-| 정상 제출 | 수강 중, 마감 전, 미제출 | submit 페이지 → 텍스트 입력 → 제출 | 상태 "제출됨"으로 변경 |
+| 정상 제출 (텍스트) | 수강 중, 마감 전, 미제출 | submit 페이지 → 텍스트 입력 → 제출 | 상태 "제출됨"으로 변경 |
+| 정상 제출 (링크만) | 수강 중, 마감 전, 미제출 | submit 페이지 → 링크만 입력 → 제출 | 상태 "제출됨"으로 변경 (텍스트 없어도 허용) |
+| 빈 제출 시도 | 텍스트/링크 모두 빈칸 | 제출 버튼 클릭 | 에러 메시지 표시, 제출 차단 |
 | 지각 제출 (허용) | allow_late=true, 마감 후 | 텍스트 입력 → 제출 | 상태 "제출됨 (지각)" 표시 |
 | 지각 제출 (차단) | allow_late=false, 마감 후 | submit 페이지 접근 | 제출 버튼 비활성화, 마감 안내 메시지 |
 | 재제출 요청 수신 | 강사가 resubmission_required 설정 | feedback 페이지 접근 | "재제출 요청" 상태 + 피드백 표시, 재제출 버튼 활성화 |
@@ -632,10 +642,10 @@ describe('getLearnerDashboard')
   ✓ 수강 코스 없을 시 빈 상태 반환
 
 describe('getCourseGrades')
-  ✓ 채점된(graded) 과제의 score × weight 합산
-  ✓ 현재 성적: SUM(score×weight) / SUM(weight) (graded만)
-  ✓ 미채점 과제 집계 제외 (0점 처리 안 함)
-  ✓ 채점된 과제 없을 시 null 반환
+  ✓ 현재 평점: SUM(score×weight) / SUM(weight) (graded만) — 퀄리티 지표
+  ✓ 예상 최종 성적: SUM(score×weight) / SUM(코스 전체 published 과제 weight) — 달성도 지표
+  ✓ 미채점 과제는 현재 평점에서 제외, 예상 최종 성적에서는 0점 처리
+  ✓ 채점된 과제 없을 시 현재 평점 null 반환, 예상 최종 성적 0 반환
   ✗ 수강 중이 아닌 경우 → failure(403, NOT_ENROLLED)
 ```
 
@@ -645,8 +655,9 @@ describe('getCourseGrades')
 | 대시보드 기본 표시 | 수강 코스 2개, 각 과제 있음 | /courses/my 접근 | 코스 카드 2개 + 진행률 표시 |
 | 진행률 계산 | 과제 4개 중 2개 graded | 대시보드 접근 | 진행률 50% 표시 |
 | 마감 임박 과제 | 24시간 내 마감 과제 존재 | 대시보드 접근 | "마감 임박" 섹션에 해당 과제 표시 |
-| 성적 페이지 | 채점된 과제 2개 | /courses/my/[id]/grades | 과제별 점수 + 현재 성적(가중 평균) 표시 |
-| 미채점 과제 성적 표시 | 과제 3개, 채점 1개 | grades 페이지 | 미채점 과제는 "-" 표시, 현재 성적은 채점된 1개 기준 계산 |
+| 성적 페이지 | 채점된 과제 2개 | /courses/my/[id]/grades | 과제별 점수 + 현재 평점 + 예상 최종 성적 표시 |
+| 미채점 과제 성적 표시 | 과제 3개, 채점 1개 | grades 페이지 | 미채점 과제는 "-" 표시, 현재 평점은 채점된 1개 기준, 예상 최종 성적은 미제출 0점 반영 |
+| 성적 착시 방지 | 쉬운 과제 1개(10%)만 100점 | grades 페이지 | 현재 평점 100점 / 예상 최종 성적 10점 — 두 값 모두 표시 |
 | 수강 없는 대시보드 | 수강 코스 0개 | /courses/my 접근 | 빈 상태 + "코스 탐색" 버튼 표시 |
 
 ---
@@ -699,23 +710,20 @@ describe('getInstructorDashboard')
 
 ### [Feature] reports
 
-> 유저플로우 §12 신고 접수·처리
+> 유저플로우 §12 신고 접수 (MVP 범위: 접수 폼만 구현, 어드민 UI 제외)
 
 **파일 구조:**
 ```
 src/features/reports/
 ├── backend/
-│   ├── route.ts    ← POST /api/reports, GET /api/reports, PATCH /api/reports/:id
-│   ├── service.ts  ← createReport(), getReportList(), updateReport()
-│   ├── schema.ts   ← CreateReportSchema, UpdateReportSchema, ReportResponseSchema
-│   └── error.ts    ← REPORT_NOT_FOUND, INVALID_STATUS_TRANSITION
+│   ├── route.ts    ← POST /api/reports (접수만)
+│   ├── service.ts  ← createReport()
+│   ├── schema.ts   ← CreateReportSchema, ReportResponseSchema
+│   └── error.ts    ← REPORT_SUBMISSION_FAILED
 ├── components/
-│   ├── report-form.tsx        ← 신고 접수 폼 (target_type, reason, content)
-│   └── report-table.tsx       ← 운영자: 신고 목록 + 상태 필터
+│   └── report-form.tsx        ← 신고 접수 폼 (target_type, reason, content)
 ├── hooks/
-│   ├── useCreateReportMutation.ts
-│   ├── useReportListQuery.ts
-│   └── useUpdateReportMutation.ts
+│   └── useCreateReportMutation.ts
 └── lib/
     └── dto.ts
 ```
@@ -724,54 +732,38 @@ src/features/reports/
 | Method | Path | 설명 | 권한 |
 |---|---|---|---|
 | `POST` | `/api/reports` | 신고 접수 | withAuth |
-| `GET` | `/api/reports` | 신고 목록 조회 | operator |
-| `PATCH` | `/api/reports/:id` | 상태·액션 처리 | operator |
+
+> `GET /api/reports`, `PATCH /api/reports/:id` (운영자 처리)는 **미구현**. 신고 접수 시 운영자 이메일/Slack 알림 발송. 처리는 DB 직접 쿼리로 수행.
 
 **Backend Unit Tests:**
 ```
 describe('createReport')
-  ✓ 정상 신고 접수 → status=received
+  ✓ 정상 신고 접수 → status=received, 알림 발송
   ✗ 유효하지 않은 target_type → failure(400, VALIDATION_ERROR)
   ✗ reason 빈 값 → failure(400, VALIDATION_ERROR)
-
-describe('updateReport')
-  ✓ received → investigating
-  ✓ investigating → resolved + action 지정
-  ✗ resolved → received (역방향) → failure(400, INVALID_STATUS_TRANSITION)
-  ✗ role≠operator → failure(403, FORBIDDEN)
 ```
 
 **Frontend QA Sheet:**
 | 시나리오 | 사전 조건 | 단계 | 기대 결과 |
 |---|---|---|---|
 | 코스 신고 | 로그인, 코스 상세 페이지 | "신고" 클릭 → 사유·내용 작성 → 제출 | "신고 접수됨" 토스트 표시 |
-| 운영자 신고 목록 | role=operator | /operator/reports | 전체 신고 목록 표시 |
-| 운영자 상태 처리 | received 신고 존재 | 신고 선택 → "조사 중"으로 변경 | 상태 investigating 업데이트 |
 
 ---
 
 ### [Feature] metadata
 
-> 유저플로우 §12 카테고리·난이도 관리
+> 카테고리·난이도 조회 (MVP 범위: GET only. 데이터는 Seed로 고정, CRUD UI 미구현)
 
 **파일 구조:**
 ```
 src/features/metadata/
 ├── backend/
-│   ├── route.ts    ← CRUD for /api/metadata/categories, /api/metadata/difficulties
-│   ├── service.ts  ← getCategoryList(), createCategory(), updateCategory(), getDifficultyList(), createDifficulty(), updateDifficulty()
-│   ├── schema.ts   ← CategorySchema, DifficultySchema
-│   └── error.ts    ← DUPLICATE_NAME, METADATA_IN_USE
-├── components/
-│   ├── category-manager.tsx     ← 카테고리 목록 + 추가/비활성화
-│   └── difficulty-manager.tsx   ← 난이도 목록 + 추가/비활성화
+│   ├── route.ts    ← GET /api/metadata/categories, GET /api/metadata/difficulties
+│   ├── service.ts  ← getCategoryList(), getDifficultyList()
+│   └── schema.ts   ← CategorySchema, DifficultySchema
 ├── hooks/
 │   ├── useCategoryListQuery.ts
-│   ├── useCreateCategoryMutation.ts
-│   ├── useUpdateCategoryMutation.ts
-│   ├── useDifficultyListQuery.ts
-│   ├── useCreateDifficultyMutation.ts
-│   └── useUpdateDifficultyMutation.ts
+│   └── useDifficultyListQuery.ts
 └── lib/
     └── dto.ts
 ```
@@ -779,33 +771,27 @@ src/features/metadata/
 **API 엔드포인트:**
 | Method | Path | 설명 | 권한 |
 |---|---|---|---|
-| `GET` | `/api/metadata/categories` | 카테고리 목록 | public (is_active=true) / operator (전체) |
-| `POST` | `/api/metadata/categories` | 카테고리 생성 | operator |
-| `PATCH` | `/api/metadata/categories/:id` | 비활성화/활성화 | operator |
-| `GET` | `/api/metadata/difficulties` | 난이도 목록 | public / operator |
-| `POST` | `/api/metadata/difficulties` | 난이도 생성 | operator |
-| `PATCH` | `/api/metadata/difficulties/:id` | 비활성화/활성화 | operator |
+| `GET` | `/api/metadata/categories` | 카테고리 목록 (is_active=true) | public |
+| `GET` | `/api/metadata/difficulties` | 난이도 목록 (is_active=true) | public |
+
+> `POST`, `PATCH` (카테고리/난이도 생성·수정)는 **미구현**. 데이터 변경 필요 시 마이그레이션 파일 추가.
 
 **Backend Unit Tests:**
 ```
-describe('createCategory')
-  ✓ 정상 생성 → is_active=true
-  ✗ 중복 이름 → failure(409, DUPLICATE_NAME)
-  ✗ role≠operator → failure(403, FORBIDDEN)
+describe('getCategoryList')
+  ✓ is_active=true인 카테고리만 반환
+  ✓ 결과 없을 시 빈 배열 반환
 
-describe('updateCategory (is_active)')
-  ✓ 사용 중인 카테고리 비활성화 → is_active=false (코스에는 유지, 신규 선택 불가)
-  ✓ 비활성 카테고리 재활성화 → is_active=true
-  ✗ role≠operator → failure(403, FORBIDDEN)
+describe('getDifficultyList')
+  ✓ is_active=true인 난이도만 반환
+  ✓ 결과 없을 시 빈 배열 반환
 ```
 
 **Frontend QA Sheet:**
 | 시나리오 | 사전 조건 | 단계 | 기대 결과 |
 |---|---|---|---|
-| 카테고리 생성 | role=operator | "카테고리 추가" → 이름 입력 → 저장 | 목록에 신규 항목 표시 |
-| 중복 이름 입력 | 동일 이름 카테고리 존재 | 동일 이름으로 생성 시도 | 중복 에러 메시지 표시 |
-| 카테고리 비활성화 | 사용 중인 카테고리 | "비활성화" 클릭 | is_active=false, 코스 생성 폼에서 미표시 |
-| 코스 필터에서 활성 카테고리만 표시 | 비활성 카테고리 존재 | /courses 필터 바 확인 | is_active=true인 카테고리만 표시 |
+| 코스 필터 카테고리 표시 | Seed 카테고리 존재 | /courses 필터 바 확인 | is_active=true인 카테고리만 표시 |
+| 코스 생성 폼 난이도 선택 | Seed 난이도 존재 | /instructor/courses/new → 난이도 셀렉터 | is_active=true인 난이도만 표시 |
 
 ---
 
@@ -819,23 +805,24 @@ describe('updateCategory (is_active)')
   src/constants/auth.ts 경로 상수 추가 (onboarding, instructor/*, courses/my/*)
 
 2단계 (사용자 기반)
-  profiles feature (온보딩)
+  profiles feature (온보딩 — phone 선택 필드)
 
 3단계 (핵심 메타데이터)
-  metadata feature (카테고리·난이도: courses 폼에서 필요)
+  metadata feature (GET only — Seed 데이터 기반, CRUD 미구현)
+  ※ Seed 마이그레이션 파일로 초기 카테고리·난이도 데이터 삽입
 
 4단계 (코스 도메인)
-  courses feature
-  enrollments feature
+  courses feature (published ↔ draft 역방향 포함)
+  enrollments feature (재수강 정책: 이어하기)
 
 5단계 (과제·제출 도메인)
   assignments feature
-  submissions feature
+  submissions feature (content_text OR content_link 중 하나 필수)
 
 6단계 (집계 뷰)
-  learner feature (dashboard + grades)
+  learner feature (dashboard + grades — 현재 평점 + 예상 최종 성적 이원화)
   instructor feature (dashboard)
 
 7단계 (운영)
-  reports feature
+  reports feature (POST 접수만 — 어드민 UI 없음)
 ```

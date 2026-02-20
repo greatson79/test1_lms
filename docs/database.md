@@ -47,10 +47,15 @@
 
 [7. 성적 & 피드백]
   submissions JOIN assignments (READ: WHERE learner_id = ?)
-  COMPUTE 현재 성적 (채점된 과제만):
+  COMPUTE 현재 평점 (채점된 과제 기준, 퀄리티 지표):
     - 분자: SUM(score × weight) WHERE status = 'graded'
     - 분모: SUM(weight)         WHERE status = 'graded'
-    - ※ 미제출/미채점 과제는 집계에서 제외 (0점 처리 안 함)
+    - ※ 미제출/미채점 과제 집계 제외. "지금까지 제출한 것들의 평균 점수"
+  COMPUTE 예상 최종 성적 (전체 과제 기준, 달성도 지표):
+    - 분자: SUM(score × weight) WHERE status = 'graded'
+    - 분모: SUM(weight)         WHERE course_id = ? AND status = 'published' (코스 총 비중)
+    - ※ 미제출 과제는 0점 처리. weight 합계 비정규화 시 총 비중으로 나눔
+    - ※ UI에 두 값을 함께 표시하여 학습자가 실제 성취도를 오해하지 않도록 함
 
 [8. Instructor 대시보드]
   courses     (READ: WHERE instructor_id = ?)
@@ -106,7 +111,8 @@ CREATE TYPE assignment_status AS ENUM ('draft', 'published', 'closed');
 CREATE TYPE submission_status AS ENUM (
   'submitted',
   'graded',
-  'resubmission_required'
+  'resubmission_required',
+  'invalidated'  -- 신고 처리로 인한 무효화 (admin_memo 컬럼으로 사유 추적)
 );
 
 CREATE TYPE report_target_type AS ENUM (
@@ -137,7 +143,7 @@ Supabase `auth.users` 와 1:1 매핑. 역할 및 최소 프로필 저장.
 |---|---|---|---|
 | id | UUID | PK, FK auth.users | Supabase Auth UID |
 | name | TEXT | NOT NULL | 이름 |
-| phone | TEXT | NOT NULL | 휴대폰번호 |
+| phone | TEXT | NULL 허용 | 휴대폰번호 (선택 수집, 마이페이지에서 등록) |
 | role | user_role | NOT NULL | learner \| instructor \| operator |
 | created_at | TIMESTAMPTZ | NOT NULL DEFAULT NOW() | |
 | updated_at | TIMESTAMPTZ | NOT NULL DEFAULT NOW() | |
@@ -146,7 +152,7 @@ Supabase `auth.users` 와 1:1 매핑. 역할 및 최소 프로필 저장.
 CREATE TABLE IF NOT EXISTS profiles (
   id         UUID      PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   name       TEXT      NOT NULL,
-  phone      TEXT      NOT NULL,
+  phone      TEXT,
   role       user_role NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -177,7 +183,7 @@ CREATE TABLE IF NOT EXISTS terms_agreements (
 
 #### `categories`
 
-코스 카테고리 메타데이터. 운영자가 CRUD 관리.
+코스 카테고리 메타데이터. **Seed 데이터로 고정 관리** (운영자 UI 미구현. 변경 필요 시 마이그레이션으로 처리).
 
 | 컬럼 | 타입 | 제약 | 설명 |
 |---|---|---|---|
@@ -201,7 +207,7 @@ CREATE TABLE IF NOT EXISTS categories (
 
 #### `difficulties`
 
-코스 난이도 메타데이터. 운영자가 CRUD 관리.
+코스 난이도 메타데이터. **Seed 데이터로 고정 관리** (운영자 UI 미구현. 변경 필요 시 마이그레이션으로 처리).
 
 | 컬럼 | 타입 | 제약 | 설명 |
 |---|---|---|---|
@@ -276,6 +282,7 @@ CREATE INDEX IF NOT EXISTS idx_courses_category_id   ON courses(category_id);
 - `(course_id, learner_id)` UNIQUE → 중복 신청 방지 및 UPSERT(ON CONFLICT) 지원에 필수
 - `cancelled_at IS NULL` 조건으로 활성 수강 여부 판별
 - 재신청 시 새 row INSERT 없이 기존 row UPDATE → 중복 데이터 생성 방지
+- **재수강 정책: 이어하기** → 재신청 후 기존 `submissions` 데이터 유지. 과거 제출/채점 이력이 그대로 보존됨. (초기화 불필요, UX 단순화)
 
 ```sql
 CREATE TABLE IF NOT EXISTS enrollments (
@@ -305,7 +312,7 @@ CREATE INDEX IF NOT EXISTS idx_enrollments_course_id  ON enrollments(course_id);
 | title | TEXT | NOT NULL | 과제 제목 |
 | description | TEXT | | 과제 설명 및 요구사항 |
 | due_at | TIMESTAMPTZ | NOT NULL | 마감일 |
-| weight | NUMERIC(5,2) | NOT NULL, CHECK > 0 | 점수 비중 |
+| weight | NUMERIC(5,2) | NOT NULL, CHECK > 0 | 점수 비중. **코스 내 전체 과제 weight 합계는 BE 성적 계산 시 정규화(normalize)하여 처리** (DB 레벨 합계 제약 없음, FE 생성 폼에서 합계 경고 표시 권장) |
 | allow_late | BOOLEAN | NOT NULL DEFAULT FALSE | 지각 제출 허용 여부 |
 | allow_resubmit | BOOLEAN | NOT NULL DEFAULT FALSE | 재제출 허용 여부 |
 | status | assignment_status | NOT NULL DEFAULT 'draft' | draft \| published \| closed. ※ closed는 강사 수동 강제 마감 전용. 일반 마감은 `status='published' AND NOW() > due_at` 으로 판별 |
@@ -345,14 +352,15 @@ CREATE INDEX IF NOT EXISTS idx_assignments_due_at    ON assignments(due_at);
 | id | UUID | PK | |
 | assignment_id | UUID | NOT NULL, FK assignments | |
 | learner_id | UUID | NOT NULL, FK profiles | |
-| content_text | TEXT | NOT NULL | 제출 텍스트 (필수) |
-| content_link | TEXT | NULL 허용 | 제출 링크 (선택, URL) |
+| content_text | TEXT | NULL 허용 | 제출 텍스트 (content_link 없을 시 필수) |
+| content_link | TEXT | NULL 허용 | 제출 링크 (content_text 없을 시 필수, URL) |
 | is_late | BOOLEAN | NOT NULL DEFAULT FALSE | 지각 제출 여부 |
-| status | submission_status | NOT NULL DEFAULT 'submitted' | submitted \| graded \| resubmission_required |
+| status | submission_status | NOT NULL DEFAULT 'submitted' | submitted \| graded \| resubmission_required \| invalidated |
 | score | INTEGER | NULL 허용, CHECK 0~100 | 채점 점수 |
 | feedback | TEXT | NULL 허용 | 강사 피드백 |
 | submitted_at | TIMESTAMPTZ | NOT NULL DEFAULT NOW() | 최종 제출 시각 |
 | graded_at | TIMESTAMPTZ | NULL 허용 | 채점 시각 |
+| admin_memo | TEXT | NULL 허용 | 무효화(invalidated) 처리 시 운영자 사유 기록 |
 | created_at | TIMESTAMPTZ | NOT NULL DEFAULT NOW() | |
 | updated_at | TIMESTAMPTZ | NOT NULL DEFAULT NOW() | |
 
@@ -364,14 +372,17 @@ CREATE TABLE IF NOT EXISTS submissions (
   id            UUID              PRIMARY KEY DEFAULT gen_random_uuid(),
   assignment_id UUID              NOT NULL REFERENCES assignments(id) ON DELETE CASCADE,
   learner_id    UUID              NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
-  content_text  TEXT              NOT NULL,
+  content_text  TEXT,
   content_link  TEXT,
+  -- content_text, content_link 중 하나 이상 필수
+  CONSTRAINT chk_submission_content CHECK (content_text IS NOT NULL OR content_link IS NOT NULL),
   is_late       BOOLEAN           NOT NULL DEFAULT FALSE,
   status        submission_status NOT NULL DEFAULT 'submitted',
   score         INTEGER           CHECK (score >= 0 AND score <= 100),
   feedback      TEXT,
   submitted_at  TIMESTAMPTZ       NOT NULL DEFAULT NOW(),
   graded_at     TIMESTAMPTZ,
+  admin_memo    TEXT,
   created_at    TIMESTAMPTZ       NOT NULL DEFAULT NOW(),
   updated_at    TIMESTAMPTZ       NOT NULL DEFAULT NOW(),
   UNIQUE(assignment_id, learner_id)
@@ -386,7 +397,7 @@ CREATE INDEX IF NOT EXISTS idx_submissions_status        ON submissions(status);
 
 #### `reports`
 
-운영자 신고 접수 및 처리 이력.
+신고 접수 이력. **프론트엔드 어드민 UI 미구현** (MVP 범위 외). 신고 접수 시 이메일/Slack 알림 발송 후 운영자가 DB 직접 쿼리로 처리.
 
 | 컬럼 | 타입 | 제약 | 설명 |
 |---|---|---|---|
@@ -468,10 +479,10 @@ CREATE TRIGGER trg_reports_updated_at
 |---|---|
 | `profiles` | 유저 역할 및 최소 프로필 |
 | `terms_agreements` | 온보딩 약관 동의 이력 |
-| `categories` | 코스 카테고리 메타데이터 (운영자 관리) |
-| `difficulties` | 코스 난이도 메타데이터 (운영자 관리) |
+| `categories` | 코스 카테고리 메타데이터 (Seed 고정, UI 미구현) |
+| `difficulties` | 코스 난이도 메타데이터 (Seed 고정, UI 미구현) |
 | `courses` | 강사 개설 코스 |
 | `enrollments` | 학습자 수강신청 기록 |
 | `assignments` | 코스별 과제 |
 | `submissions` | 학습자 제출물 및 채점 결과 |
-| `reports` | 운영자 신고 접수/처리 |
+| `reports` | 신고 접수 이력 (어드민 UI 없음, DB 직접 처리) |
