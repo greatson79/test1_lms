@@ -9,6 +9,8 @@
 - Hono 라우트 경로는 반드시 `/api` prefix를 포함해야 함 (Next.js API 라우트가 `/api/[[...hono]]`에 위치하므로). 예: `app.post('/api/auth/signup', ...)`
 - `AppLogger`는 `info`, `error`, `warn`, `debug` 메서드만 제공함. `logger.log()` 대신 `logger.info()` 사용할 것.
 - API 응답 스키마에서 `redirectTo` 등 경로 필드는 `z.string().url()` 대신 `z.string()` 사용 (상대 경로 허용).
+- Always use client-side `supabase.auth.signUp()` (not `auth.admin.createUser()`) for registration flows that require an immediate browser session; admin API creates no client session, causing redirect loops.
+- Before implementing any feature, verify that all env var names consumed by `env.ts` / backend config match `.env.local` exactly — mismatches silently break API calls at runtime.
 
 ## Library
 
