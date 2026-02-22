@@ -39,6 +39,7 @@ export const useSubmitAssignmentMutation = (courseId: string, assignmentId: stri
     mutationFn: (payload) => submitAssignment({ courseId, assignmentId, payload }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['assignment', courseId, assignmentId] });
+      queryClient.invalidateQueries({ queryKey: ['grades', courseId] });
     },
     throwOnError: false,
   });

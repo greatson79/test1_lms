@@ -88,7 +88,7 @@ export const EnrolledCourseCard = ({ course }: EnrolledCourseCardProps) => {
 
       <div className="px-4 pb-3">
         <Link
-          href={`/courses/my/${course.id}/grades`}
+          href={`/my/courses/${course.id}/grades`}
           className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-800"
           onClick={(e) => e.stopPropagation()}
         >

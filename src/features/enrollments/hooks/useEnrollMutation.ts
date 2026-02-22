@@ -30,6 +30,7 @@ export const useEnrollMutation = (courseId: string) => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['course', courseId] });
       queryClient.invalidateQueries({ queryKey: ['enrollment-status', courseId] });
+      queryClient.invalidateQueries({ queryKey: ['learner', 'dashboard'] });
     },
     throwOnError: false,
   });
