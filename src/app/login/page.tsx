@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { match } from "ts-pattern";
@@ -26,9 +26,10 @@ export default function LoginPage({ params }: LoginPageProps) {
   const [formState, setFormState] = useState({ email: "", password: "" });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const didLoginRef = useRef(false);
 
   useEffect(() => {
-    if (!isAuthenticated) return;
+    if (!isAuthenticated || !didLoginRef.current) return;
 
     const redirectedFrom = searchParams.get("redirectedFrom");
     if (redirectedFrom) {
@@ -80,6 +81,7 @@ export default function LoginPage({ params }: LoginPageProps) {
           return;
         }
 
+        didLoginRef.current = true;
         await refresh();
       } catch {
         setErrorMessage("로그인 처리 중 오류가 발생했습니다.");
@@ -89,10 +91,6 @@ export default function LoginPage({ params }: LoginPageProps) {
     },
     [formState.email, formState.password, refresh]
   );
-
-  if (isAuthenticated) {
-    return null;
-  }
 
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-4xl flex-col items-center justify-center gap-10 px-6 py-16">
