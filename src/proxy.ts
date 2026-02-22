@@ -26,7 +26,7 @@ const copyCookies = (from: NextResponse, to: NextResponse) => {
   return to;
 };
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const response = NextResponse.next({ request });
 
   const supabase = createServerClient<Database>(
