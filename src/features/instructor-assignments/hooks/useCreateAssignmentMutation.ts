@@ -4,6 +4,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { apiClient, extractApiErrorMessage } from '@/lib/remote/api-client';
 import { getAuthHeadersOrThrow } from '@/lib/remote/auth-headers';
+import { useToast } from '@/hooks/use-toast';
 import { InstructorAssignmentResponseSchema } from '@/features/instructor-assignments/lib/dto';
 import type { CreateAssignmentBody } from '@/features/instructor-assignments/lib/dto';
 
@@ -31,6 +32,7 @@ const createAssignmentApi = async ({
 export const useCreateAssignmentMutation = (courseId: string) => {
   const queryClient = useQueryClient();
   const router = useRouter();
+  const { toast } = useToast();
 
   return useMutation({
     mutationFn: (body: CreateAssignmentBody) => createAssignmentApi({ courseId, body }),
@@ -38,6 +40,7 @@ export const useCreateAssignmentMutation = (courseId: string) => {
       void queryClient.invalidateQueries({
         queryKey: ['instructor', 'courses', courseId, 'assignments'],
       });
+      toast({ title: '과제가 생성되었습니다.' });
       router.push(`/instructor/assignments/${data.assignment.id}`);
     },
   });

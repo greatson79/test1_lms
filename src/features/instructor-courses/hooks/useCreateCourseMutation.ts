@@ -4,6 +4,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { apiClient, extractApiErrorMessage } from '@/lib/remote/api-client';
 import { getAuthHeadersOrThrow } from '@/lib/remote/auth-headers';
+import { useToast } from '@/hooks/use-toast';
 import { InstructorCourseResponseSchema } from '@/features/instructor-courses/lib/dto';
 import type { CreateCourseBody } from '@/features/instructor-courses/lib/dto';
 
@@ -21,11 +22,13 @@ const createCourseApi = async (body: CreateCourseBody) => {
 export const useCreateCourseMutation = () => {
   const queryClient = useQueryClient();
   const router = useRouter();
+  const { toast } = useToast();
 
   return useMutation({
     mutationFn: createCourseApi,
     onSuccess: (data) => {
       void queryClient.invalidateQueries({ queryKey: ['instructor', 'dashboard'] });
+      toast({ title: '코스가 생성되었습니다.' });
       router.push(`/instructor/courses/${data.course.id}`);
     },
   });

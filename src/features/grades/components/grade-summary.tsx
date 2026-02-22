@@ -23,7 +23,9 @@ const resolveSummaryState = (
   if (assignments.length === 0) return { type: 'no_assignments' };
 
   const hasPendingSubmission = assignments.some(
-    (a) => a.mySubmission?.status === 'submitted',
+    (a) =>
+      a.mySubmission?.status === 'submitted' ||
+      a.mySubmission?.status === 'resubmission_required',
   );
   return hasPendingSubmission ? { type: 'pending' } : { type: 'no_assignments' };
 };

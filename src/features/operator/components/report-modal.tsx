@@ -17,8 +17,14 @@ import {
   FormLabel,
   FormMessage,
 } from '@/components/ui/form';
-import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { useSubmitReportMutation } from '@/features/operator/hooks/useSubmitReportMutation';
@@ -83,9 +89,21 @@ export const ReportModal = ({ targetType, targetId, open, onOpenChange }: Report
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>신고 사유</FormLabel>
-                  <FormControl>
-                    <Input placeholder="신고 사유를 입력해 주세요." {...field} />
-                  </FormControl>
+                  <Select onValueChange={field.onChange} defaultValue={field.value}>
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder="신고 사유를 선택해 주세요." />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      <SelectItem value="부적절한 콘텐츠">부적절한 콘텐츠</SelectItem>
+                      <SelectItem value="저작권 침해">저작권 침해</SelectItem>
+                      <SelectItem value="스팸 / 광고">스팸 / 광고</SelectItem>
+                      <SelectItem value="허위 정보">허위 정보</SelectItem>
+                      <SelectItem value="욕설 / 혐오 표현">욕설 / 혐오 표현</SelectItem>
+                      <SelectItem value="기타">기타</SelectItem>
+                    </SelectContent>
+                  </Select>
                   <FormMessage />
                 </FormItem>
               )}
