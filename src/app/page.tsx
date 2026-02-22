@@ -1,25 +1,9 @@
 'use client';
 
-import { useEffect } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { BookOpen, GraduationCap, BarChart3, Loader2 } from 'lucide-react';
+import { BookOpen, GraduationCap, BarChart3 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { useRouter } from 'next/navigation';
-import { useCurrentUser } from '@/features/auth/hooks/useCurrentUser';
-import {
-  LEARNER_HOME_PATH,
-  INSTRUCTOR_HOME_PATH,
-  OPERATOR_HOME_PATH,
-  ONBOARDING_PATH,
-} from '@/constants/auth';
-import type { UserRole } from '@/features/auth/types';
-
-const ROLE_HOME: Record<UserRole, string> = {
-  learner: LEARNER_HOME_PATH,
-  instructor: INSTRUCTOR_HOME_PATH,
-  operator: OPERATOR_HOME_PATH,
-};
 
 const features = [
   {
@@ -40,26 +24,6 @@ const features = [
 ];
 
 export default function Home() {
-  const router = useRouter();
-  const { user, isAuthenticated, isLoading } = useCurrentUser();
-
-  useEffect(() => {
-    if (isLoading || !isAuthenticated) return;
-    if (!user?.role) {
-      router.replace(ONBOARDING_PATH);
-      return;
-    }
-    router.replace(ROLE_HOME[user.role]);
-  }, [isLoading, isAuthenticated, user, router]);
-
-  if (isAuthenticated) {
-    return (
-      <div className="flex min-h-screen items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
-      </div>
-    );
-  }
-
   return (
     <main className="min-h-screen bg-white">
       {/* 네비게이션 */}
