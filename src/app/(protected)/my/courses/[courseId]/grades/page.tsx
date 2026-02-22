@@ -80,6 +80,7 @@ export default function GradesPage({ params }: GradesPageProps) {
 
   const assignments = data?.assignments ?? [];
   const currentGrade = data?.currentGrade ?? null;
+  const estimatedFinalGrade = data?.estimatedFinalGrade ?? 0;
 
   return (
     <main className="mx-auto max-w-3xl px-4 py-8">
@@ -97,7 +98,7 @@ export default function GradesPage({ params }: GradesPageProps) {
       </div>
 
       <div className="mb-6">
-        <GradeSummary currentGrade={currentGrade} assignments={assignments} />
+        <GradeSummary currentGrade={currentGrade} estimatedFinalGrade={estimatedFinalGrade} assignments={assignments} />
       </div>
 
       <Separator className="mb-4" />

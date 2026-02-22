@@ -20,6 +20,7 @@ export const AssignmentGradeItemSchema = z.object({
 
 export const GradesResponseSchema = z.object({
   currentGrade: z.number().nullable(),
+  estimatedFinalGrade: z.number(),
   assignments: z.array(AssignmentGradeItemSchema),
 });
 

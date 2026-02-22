@@ -61,6 +61,24 @@ const verifyEnrollmentForGrades = async (
   return success(null);
 };
 
+// 전체 과제 가중치 기준 달성도 — 미채점/미제출 과제는 0점 처리
+const calculateEstimatedFinalGrade = (
+  assignments: AssignmentRow[],
+  submissionMap: Map<string, SubmissionRow>,
+): number => {
+  const totalWeight = assignments.reduce((sum, a) => sum + Number(a.weight), 0);
+  if (totalWeight === 0) return 0;
+
+  const weightedScoreSum = assignments.reduce((sum, a) => {
+    const submission = submissionMap.get(a.id);
+    const score =
+      submission?.status === 'graded' && submission.score !== null ? submission.score : 0;
+    return sum + score * Number(a.weight);
+  }, 0);
+
+  return weightedScoreSum / totalWeight;
+};
+
 // 채점된 제출물이 없으면 null 반환, 그 외 가중 평균 계산
 const calculateCurrentGrade = (
   assignments: AssignmentRow[],
@@ -123,6 +141,7 @@ export const getGrades = async (
   const submissionMap = new Map(submissions.map((s) => [s.assignment_id, s]));
 
   const currentGrade = calculateCurrentGrade(assignments, submissionMap);
+  const estimatedFinalGrade = calculateEstimatedFinalGrade(assignments, submissionMap);
 
   const assignmentGradeItems: AssignmentGradeItem[] = assignments.map((a) => {
     const sub = submissionMap.get(a.id) ?? null;
@@ -137,6 +156,7 @@ export const getGrades = async (
 
   return success({
     currentGrade,
+    estimatedFinalGrade,
     assignments: assignmentGradeItems,
   });
 };
