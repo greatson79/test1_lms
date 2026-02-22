@@ -53,3 +53,5 @@ next-env.d.ts
 /CLAUDE.md
 /CLAUDE.md.bak
 # END Ruler Generated Files
+
+/docs/**/usecase-checker.md
