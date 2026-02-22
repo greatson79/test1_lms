@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { BookOpen, RefreshCw } from 'lucide-react';
+import { BookOpen, Plus, RefreshCw } from 'lucide-react';
 import { useRoleGuard } from '@/hooks/useRoleGuard';
 import { useInstructorDashboardQuery } from '@/features/instructor-dashboard/hooks/useInstructorDashboardQuery';
 import { PendingCountSummary } from '@/features/instructor-dashboard/components/pending-count-summary';
@@ -67,6 +67,13 @@ export default function InstructorDashboardPage({ params }: InstructorDashboardP
           <section className="flex flex-col gap-4">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold text-slate-900">내 코스</h2>
+              <Link
+                href="/instructor/courses/new"
+                className="flex items-center gap-1.5 rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700"
+              >
+                <Plus className="h-4 w-4" />
+                코스 만들기
+              </Link>
             </div>
 
             {data?.courses.length === 0 ? (
