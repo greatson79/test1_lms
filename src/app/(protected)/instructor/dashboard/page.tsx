@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
 import { BookOpen, Plus, RefreshCw } from 'lucide-react';
 import { useRoleGuard } from '@/hooks/useRoleGuard';
@@ -31,10 +32,20 @@ const DashboardSkeleton = () => (
   </div>
 );
 
+const ALL = '';
+
 export default function InstructorDashboardPage({ params }: InstructorDashboardPageProps) {
   void params;
   const { isAllowed, isLoading: isRoleLoading } = useRoleGuard('instructor');
   const { data, isLoading, isError, error, refetch } = useInstructorDashboardQuery();
+  const [selectedCategory, setSelectedCategory] = useState(ALL);
+  const [selectedDifficulty, setSelectedDifficulty] = useState(ALL);
+
+  const filteredCourses = (data?.courses ?? []).filter((course) => {
+    const categoryMatch = selectedCategory === ALL || course.categoryName === selectedCategory;
+    const difficultyMatch = selectedDifficulty === ALL || course.difficultyName === selectedDifficulty;
+    return categoryMatch && difficultyMatch;
+  });
 
   if (isRoleLoading || !isAllowed) return null;
 
@@ -76,6 +87,31 @@ export default function InstructorDashboardPage({ params }: InstructorDashboardP
               </Link>
             </div>
 
+            {(data?.meta.categories ?? []).length > 0 || (data?.meta.difficulties ?? []).length > 0 ? (
+              <div className="flex flex-wrap gap-3">
+                <select
+                  value={selectedCategory}
+                  onChange={(e) => setSelectedCategory(e.target.value)}
+                  className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-300"
+                >
+                  <option value={ALL}>전체 카테고리</option>
+                  {(data?.meta.categories ?? []).map((c) => (
+                    <option key={c.id} value={c.name}>{c.name}</option>
+                  ))}
+                </select>
+                <select
+                  value={selectedDifficulty}
+                  onChange={(e) => setSelectedDifficulty(e.target.value)}
+                  className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-300"
+                >
+                  <option value={ALL}>전체 난이도</option>
+                  {(data?.meta.difficulties ?? []).map((d) => (
+                    <option key={d.id} value={d.name}>{d.name}</option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
+
             {data?.courses.length === 0 ? (
               <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-slate-300 py-24 text-center">
                 <BookOpen className="mb-3 h-10 w-10 text-slate-300" />
@@ -90,9 +126,14 @@ export default function InstructorDashboardPage({ params }: InstructorDashboardP
                   코스 만들기
                 </Link>
               </div>
+            ) : filteredCourses.length === 0 ? (
+              <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-slate-300 py-16 text-center">
+                <BookOpen className="mb-3 h-8 w-8 text-slate-300" />
+                <p className="font-medium text-slate-500">해당 조건의 코스가 없습니다.</p>
+              </div>
             ) : (
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {data?.courses.map((course) => (
+                {filteredCourses.map((course) => (
                   <InstructorCourseCard key={course.id} course={course} />
                 ))}
               </div>

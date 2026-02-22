@@ -8,4 +8,5 @@ export type {
   InstructorDashboardResponse,
   InstructorCourseItem,
   RecentSubmissionItem,
+  MetaItem,
 } from '@/features/instructor-dashboard/backend/schema';

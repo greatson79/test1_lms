@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { match } from 'ts-pattern';
-import { ClipboardList } from 'lucide-react';
+import { ClipboardList, Tag, BarChart2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import type { InstructorCourseItem } from '@/features/instructor-dashboard/lib/dto';
@@ -34,7 +34,17 @@ export const InstructorCourseCard = ({ course }: InstructorCourseCardProps) => (
           <StatusBadge status={course.status} />
         </div>
       </CardHeader>
-      <CardContent>
+      <CardContent className="flex flex-col gap-2">
+        <div className="flex flex-wrap gap-3 text-xs text-slate-500">
+          <span className="flex items-center gap-1">
+            <Tag className="h-3.5 w-3.5" />
+            {course.categoryName ?? '카테고리 없음'}
+          </span>
+          <span className="flex items-center gap-1">
+            <BarChart2 className="h-3.5 w-3.5" />
+            {course.difficultyName ?? '난이도 없음'}
+          </span>
+        </div>
         {course.pendingCount > 0 ? (
           <div className="flex items-center gap-1.5">
             <ClipboardList className="h-4 w-4 text-blue-500" />

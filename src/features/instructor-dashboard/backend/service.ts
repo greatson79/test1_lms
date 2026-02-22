@@ -14,6 +14,8 @@ type CourseRow = {
   id: string;
   title: string;
   status: 'draft' | 'published' | 'archived';
+  category: { id: string; name: string } | null;
+  difficulty: { id: string; name: string } | null;
 };
 
 type AssignmentRow = {
@@ -53,6 +55,8 @@ export const mergePendingCounts = (
     title: c.title,
     status: c.status,
     pendingCount: pendingMap.get(c.id) ?? 0,
+    categoryName: c.category?.name ?? null,
+    difficultyName: c.difficulty?.name ?? null,
   }));
 
 export const getInstructorDashboard = async (
@@ -62,7 +66,7 @@ export const getInstructorDashboard = async (
   // 1. 내 코스 목록 조회 (전체 status, created_at DESC)
   const { data: coursesRaw, error: coursesError } = await supabase
     .from('courses')
-    .select('id, title, status')
+    .select('id, title, status, category:categories!category_id(id, name), difficulty:difficulties!difficulty_id(id, name)')
     .eq('instructor_id', instructorId)
     .order('created_at', { ascending: false });
 
@@ -76,11 +80,23 @@ export const getInstructorDashboard = async (
   const pendingMap = new Map<string, number>();
   let recentSubmissions: RecentSubmissionItem[] = [];
 
+  // meta: 필터용 카테고리·난이도 목록
+  const [categoriesResult, difficultiesResult] = await Promise.all([
+    supabase.from('categories').select('id, name').eq('is_active', true).order('name', { ascending: true }),
+    supabase.from('difficulties').select('id, name').eq('is_active', true).order('name', { ascending: true }),
+  ]);
+
+  const meta = {
+    categories: (categoriesResult.data ?? []) as { id: string; name: string }[],
+    difficulties: (difficultiesResult.data ?? []) as { id: string; name: string }[],
+  };
+
   if (courseIds.length === 0) {
     return success({
       courses: [],
       totalPendingCount: 0,
       recentSubmissions: [],
+      meta,
     });
   }
 
@@ -186,5 +202,6 @@ export const getInstructorDashboard = async (
     courses: courseItems,
     totalPendingCount,
     recentSubmissions,
+    meta,
   });
 };
