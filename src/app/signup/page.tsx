@@ -84,8 +84,6 @@ export default function SignupPage({ params }: SignupPageProps) {
     router.replace(redirectTo);
   }, [isAuthenticated, user, router]);
 
-  if (isAuthenticated) return null;
-
   const handleRoleSelect = (role: OnboardingRequest["role"]) => {
     setValue("role", role, { shouldValidate: true });
   };
@@ -150,6 +148,8 @@ export default function SignupPage({ params }: SignupPageProps) {
     },
     [onboardMutateAsync, refresh, router, setError],
   );
+
+  if (isAuthenticated) return null;
 
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-4xl flex-col items-center justify-center gap-10 px-6 py-16">
