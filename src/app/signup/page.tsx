@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -14,7 +14,6 @@ import {
   useOnboardingMutation,
   extractApiErrorMessage,
 } from "@/features/profiles/hooks/useOnboardingMutation";
-import { useSignupMutation } from "@/features/profiles/hooks/useSignupMutation";
 import type { OnboardingRequest } from "@/features/profiles/lib/dto";
 import {
   ONBOARDING_PATH,
@@ -51,9 +50,9 @@ export default function SignupPage({ params }: SignupPageProps) {
   void params;
   const router = useRouter();
   const { isAuthenticated, user, refresh } = useCurrentUser();
-  const { mutateAsync: signupMutateAsync, isPending: isSignupPending } = useSignupMutation();
   const { mutateAsync: onboardMutateAsync, isPending: isOnboardPending } = useOnboardingMutation();
-  const isPending = isSignupPending || isOnboardPending;
+  const [isSigningUp, setIsSigningUp] = useState(false);
+  const isPending = isSigningUp || isOnboardPending;
 
   const {
     register,
@@ -94,40 +93,38 @@ export default function SignupPage({ params }: SignupPageProps) {
   const onSubmit = useCallback(
     async (values: SignupFormValues) => {
       const supabase = getSupabaseBrowserClient();
+      setIsSigningUp(true);
 
-      // Step 1: 서버에서 계정 생성 (admin API, 이메일 발송 없음)
       try {
-        await signupMutateAsync({
-          email: values.email,
-          password: values.password,
-        });
-      } catch (error) {
-        const msg = extractApiErrorMessage(error, "").toLowerCase();
-        const isConflict = msg.includes("already") || msg.includes("duplicate");
-        setError("root", {
-          message: isConflict
-            ? "이미 사용 중인 이메일입니다. 다른 이메일을 사용해주세요."
-            : extractApiErrorMessage(error, "계정 생성에 실패했습니다."),
-        });
-        return;
-      }
-
-      // Step 2: 비밀번호로 즉시 로그인하여 세션 획득
-      const { data: signInData, error: signInError } =
-        await supabase.auth.signInWithPassword({
+        // Step 1: 브라우저에서 직접 계정 생성 (즉시 세션 획득)
+        const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
           email: values.email,
           password: values.password,
         });
 
-      if (signInError || !signInData.session) {
-        setError("root", {
-          message: "로그인에 실패했습니다. 다시 시도해주세요.",
-        });
-        return;
-      }
+        if (signUpError) {
+          const msg = signUpError.message.toLowerCase();
+          const isConflict =
+            msg.includes("already") ||
+            msg.includes("registered") ||
+            msg.includes("duplicate");
+          setError("root", {
+            message: isConflict
+              ? "이미 사용 중인 이메일입니다. 다른 이메일을 사용해주세요."
+              : `계정 생성에 실패했습니다: ${signUpError.message}`,
+          });
+          return;
+        }
 
-      // Step 3: 프로필·약관 생성 (온보딩)
-      try {
+        if (!signUpData.session) {
+          setError("root", {
+            message:
+              "이메일 인증이 필요합니다. 받은 편지함을 확인하고 인증 후 로그인해주세요.",
+          });
+          return;
+        }
+
+        // Step 2: 프로필·약관 생성 (온보딩)
         const result = await onboardMutateAsync({
           data: {
             role: values.role,
@@ -135,7 +132,7 @@ export default function SignupPage({ params }: SignupPageProps) {
             phone: values.phone,
             termsAgreed: true,
           },
-          token: signInData.session.access_token,
+          token: signUpData.session.access_token,
         });
 
         await refresh();
@@ -147,9 +144,11 @@ export default function SignupPage({ params }: SignupPageProps) {
             "회원가입 처리 중 문제가 발생했습니다.",
           ),
         });
+      } finally {
+        setIsSigningUp(false);
       }
     },
-    [signupMutateAsync, onboardMutateAsync, refresh, router, setError],
+    [onboardMutateAsync, refresh, router, setError],
   );
 
   return (
