@@ -1,308 +1,154 @@
-"use client";
+'use client';
 
-import { useCallback, useMemo, useState } from "react";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { Copy, CheckCircle2, Boxes, Database, LogOut, Server } from "lucide-react";
-import { getSupabaseBrowserClient } from "@/lib/supabase/browser-client";
-import { useCurrentUser } from "@/features/auth/hooks/useCurrentUser";
+import { useEffect } from 'react';
+import Link from 'next/link';
+import Image from 'next/image';
+import { useRouter } from 'next/navigation';
+import { match } from 'ts-pattern';
+import { BookOpen, GraduationCap, BarChart3, Loader2 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { useCurrentUser } from '@/features/auth/hooks/useCurrentUser';
+import {
+  ONBOARDING_PATH,
+  LEARNER_HOME_PATH,
+  INSTRUCTOR_HOME_PATH,
+  OPERATOR_HOME_PATH,
+} from '@/constants/auth';
+import type { UserRole } from '@/features/auth/types';
 
-type SetupCommand = {
-  id: string;
-  label: string;
-  command: string;
+const ROLE_HOME: Record<UserRole, string> = {
+  learner: LEARNER_HOME_PATH,
+  instructor: INSTRUCTOR_HOME_PATH,
+  operator: OPERATOR_HOME_PATH,
 };
 
-const setupCommands: SetupCommand[] = [
-  { id: "install", label: "의존성 설치", command: "npm install" },
-  { id: "lint", label: "정적 점검", command: "npm run lint" },
-  { id: "dev", label: "로컬 개발 서버", command: "npm run dev" },
-];
-
-const envVariables = [
+const features = [
   {
-    key: "SUPABASE_URL",
-    description: "Supabase 프로젝트 URL (https://...supabase.co)",
+    icon: <BookOpen className="h-6 w-6 text-slate-700" />,
+    title: '체계적인 코스 관리',
+    description: '카테고리·난이도별로 정리된 코스를 탐색하고 수강신청하세요.',
   },
   {
-    key: "SUPABASE_SERVICE_ROLE_KEY",
-    description:
-      "서버 전용 service-role 키. 절대 클라이언트로 노출하지 마세요.",
-  },
-];
-
-const directorySummary = [
-  {
-    title: "앱 라우터",
-    description: "Next.js App Router 엔트리포인트와 레이아웃 정의",
-    path: "src/app",
+    icon: <GraduationCap className="h-6 w-6 text-slate-700" />,
+    title: '과제 제출 & 피드백',
+    description: '강사의 상세한 피드백과 채점으로 실력을 빠르게 향상시키세요.',
   },
   {
-    title: "Hono 엔트리포인트",
-    description: "Next.js Route Handler에서 Hono 앱을 위임",
-    path: "src/app/api/[[...hono]]",
-  },
-  {
-    title: "백엔드 구성요소",
-    description: "Hono 앱, 미들웨어, Supabase 서비스",
-    path: "src/backend",
-  },
-  {
-    title: "기능 모듈",
-    description: "각 기능별 DTO, 라우터, React Query 훅",
-    path: "src/features/[feature]",
-  },
-];
-
-const backendBuildingBlocks = [
-  {
-    icon: <Server className="w-4 h-4" />,
-    title: "Hono 앱 구성",
-    description:
-      "errorBoundary → withAppContext → withSupabase → registerExampleRoutes 순서로 미들웨어와 라우터를 조립합니다.",
-  },
-  {
-    icon: <Database className="w-4 h-4" />,
-    title: "Supabase 서비스",
-    description:
-      "service-role 키로 생성한 서버 클라이언트를 사용하고, 쿼리 결과는 ts-pattern으로 분기 가능한 결과 객체로 반환합니다.",
-  },
-  {
-    icon: <Boxes className="w-4 h-4" />,
-    title: "React Query 연동",
-    description:
-      "모든 클라이언트 데이터 패칭은 useExampleQuery와 같은 React Query 훅을 통해 수행하며, DTO 스키마로 응답을 검증합니다.",
+    icon: <BarChart3 className="h-6 w-6 text-slate-700" />,
+    title: '성적 & 진도 추적',
+    description: '과제별 성적과 코스 진행률을 한눈에 확인하세요.',
   },
 ];
 
 export default function Home() {
-  const [copiedCommand, setCopiedCommand] = useState<string | null>(null);
-  const { user, isAuthenticated, isLoading, refresh } = useCurrentUser();
+  const { user, isAuthenticated, isLoading } = useCurrentUser();
   const router = useRouter();
 
-  const handleSignOut = useCallback(async () => {
-    const supabase = getSupabaseBrowserClient();
-    await supabase.auth.signOut();
-    await refresh();
-    router.replace("/");
-  }, [refresh, router]);
+  useEffect(() => {
+    if (isLoading || !isAuthenticated) return;
 
-  const authActions = useMemo(() => {
-    if (isLoading) {
-      return (
-        <span className="text-sm text-slate-300">세션 확인 중...</span>
-      );
+    if (!user?.role) {
+      router.replace(ONBOARDING_PATH);
+      return;
     }
 
-    if (isAuthenticated && user) {
-      return (
-        <div className="flex items-center gap-3 text-sm text-slate-200">
-          <span className="truncate">{user.email ?? "알 수 없는 사용자"}</span>
-          <div className="flex items-center gap-2">
-            <Link
-              href="/dashboard"
-              className="rounded-md border border-slate-600 px-3 py-1 transition hover:border-slate-400 hover:bg-slate-800"
-            >
-              대시보드
-            </Link>
-            <button
-              type="button"
-              onClick={handleSignOut}
-              className="flex items-center gap-1 rounded-md bg-slate-100 px-3 py-1 text-slate-900 transition hover:bg-white"
-            >
-              <LogOut className="h-4 w-4" />
-              로그아웃
-            </button>
-          </div>
-        </div>
-      );
-    }
+    router.replace(ROLE_HOME[user.role]);
+  }, [isLoading, isAuthenticated, user, router]);
 
+  if (isLoading || isAuthenticated) {
     return (
-      <div className="flex items-center gap-3 text-sm">
-        <Link
-          href="/login"
-          className="rounded-md border border-slate-600 px-3 py-1 text-slate-200 transition hover:border-slate-400 hover:bg-slate-800"
-        >
-          로그인
-        </Link>
-        <Link
-          href="/signup"
-          className="rounded-md bg-slate-100 px-3 py-1 text-slate-900 transition hover:bg-white"
-        >
-          회원가입
-        </Link>
+      <div className="flex min-h-screen items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
       </div>
     );
-  }, [handleSignOut, isAuthenticated, isLoading, user]);
-
-  const handleCopy = (command: string) => {
-    navigator.clipboard.writeText(command);
-    setCopiedCommand(command);
-    window.setTimeout(() => setCopiedCommand(null), 2000);
-  };
+  }
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 text-white">
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-10 px-6 py-16">
-        <div className="flex items-center justify-between rounded-xl border border-slate-700 bg-slate-900/80 px-6 py-4">
-          <div className="text-sm font-medium text-slate-300">
-            SuperNext — 구조적인 Next.js + Supabase 템플릿
+    <main className="min-h-screen bg-white">
+      {/* 네비게이션 */}
+      <nav className="border-b border-slate-100 px-6 py-4">
+        <div className="mx-auto flex max-w-5xl items-center justify-between">
+          <span className="text-lg font-semibold text-slate-900">LMS</span>
+          <div className="flex items-center gap-3">
+            <Button variant="ghost" asChild>
+              <Link href="/login">로그인</Link>
+            </Button>
+            <Button asChild>
+              <Link href="/signup">회원가입</Link>
+            </Button>
           </div>
-          {authActions}
         </div>
-        <header className="space-y-4">
-          <h1 className="text-4xl font-semibold tracking-tight md:text-5xl">
-            SuperNext 프로젝트 설정 & 구조 안내서
-          </h1>
-          <p className="max-w-3xl text-base text-slate-300 md:text-lg">
-            React Query / Hono.js / Supabase를 사용합니다.
-            <br /> 모든 컴포넌트는 Client Component로 작성합니다.
-          </p>
-        </header>
+      </nav>
 
-        <section className="grid gap-8 md:grid-cols-2">
-          <SetupChecklist copiedCommand={copiedCommand} onCopy={handleCopy} />
-          <EnvironmentGuide />
-        </section>
+      {/* 히어로 섹션 */}
+      <section className="mx-auto max-w-5xl px-6 py-24">
+        <div className="grid items-center gap-12 md:grid-cols-2">
+          <div className="flex flex-col gap-6">
+            <h1 className="text-4xl font-bold leading-tight text-slate-900 md:text-5xl">
+              배움을 더
+              <br />
+              체계적으로
+            </h1>
+            <p className="text-lg text-slate-500">
+              코스 수강부터 과제 제출, 성적 확인까지.
+              <br />
+              학습의 모든 과정을 한 곳에서 관리하세요.
+            </p>
+            <div className="flex items-center gap-3">
+              <Button size="lg" asChild>
+                <Link href="/signup">무료로 시작하기</Link>
+              </Button>
+              <Button size="lg" variant="outline" asChild>
+                <Link href="/login">로그인</Link>
+              </Button>
+            </div>
+          </div>
+          <figure className="overflow-hidden rounded-2xl border border-slate-100 shadow-sm">
+            <Image
+              src="https://picsum.photos/seed/lms-hero/800/600"
+              alt="학습 플랫폼 미리보기"
+              width={800}
+              height={600}
+              className="h-full w-full object-cover"
+              priority
+            />
+          </figure>
+        </div>
+      </section>
 
-        <section className="grid gap-8 md:grid-cols-2">
-          <DirectoryOverview />
-          <BackendOverview />
-        </section>
-
-        <footer className="rounded-xl border border-slate-700 bg-slate-900/60 p-6">
-          <h2 className="text-lg font-semibold text-slate-100">
-            Supabase Migration
+      {/* 기능 소개 */}
+      <section className="border-t border-slate-100 bg-slate-50 px-6 py-20">
+        <div className="mx-auto max-w-5xl">
+          <h2 className="mb-12 text-center text-2xl font-semibold text-slate-900">
+            학습에 필요한 모든 것
           </h2>
-          <p className="mt-2 text-sm text-slate-300">
-            `supabase/migrations/20250227000100_create_example_table.sql` 파일을
-            Supabase 대시보드 SQL Editor에 업로드하여 `public.example` 테이블과
-            샘플 데이터를 생성하세요. 서비스 역할 키는 서버 환경 변수에만
-            저장하고, React Query 훅에서는 공개 API만 호출합니다.
-          </p>
-        </footer>
-      </div>
-    </main>
-  );
-}
-
-function SetupChecklist({
-  copiedCommand,
-  onCopy,
-}: {
-  copiedCommand: string | null;
-  onCopy: (command: string) => void;
-}) {
-  return (
-    <div className="space-y-4 rounded-xl border border-slate-700 bg-slate-900/60 p-6">
-      <h2 className="text-lg font-semibold text-slate-100">
-        SuperNext 설치 체크리스트
-      </h2>
-      <ul className="space-y-3">
-        {setupCommands.map((item) => (
-          <li key={item.id} className="flex items-start justify-between gap-3">
-            <div className="flex items-start gap-3">
-              <CheckCircle2 className="mt-1 h-5 w-5 text-emerald-400" />
-              <div>
-                <p className="font-medium text-slate-100">{item.label}</p>
-                <code className="text-sm text-slate-300">{item.command}</code>
+          <div className="grid gap-6 md:grid-cols-3">
+            {features.map((feature) => (
+              <div
+                key={feature.title}
+                className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-6"
+              >
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-100">
+                  {feature.icon}
+                </div>
+                <h3 className="font-semibold text-slate-900">{feature.title}</h3>
+                <p className="text-sm leading-relaxed text-slate-500">{feature.description}</p>
               </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => onCopy(item.command)}
-              className="flex items-center gap-1 rounded-md border border-slate-700 px-2 py-1 text-xs text-slate-200 transition hover:border-slate-500 hover:bg-slate-800"
-            >
-              <Copy className="h-3.5 w-3.5" />
-              {copiedCommand === item.command ? "복사됨" : "복사"}
-            </button>
-          </li>
-        ))}
-      </ul>
-      <p className="text-xs text-slate-400">
-        개발 서버는 React Query Provider가 설정된 `src/app/providers.tsx`를
-        통과하여 실행됩니다.
-      </p>
-    </div>
-  );
-}
+            ))}
+          </div>
+        </div>
+      </section>
 
-function EnvironmentGuide() {
-  return (
-    <div className="space-y-4 rounded-xl border border-slate-700 bg-slate-900/60 p-6">
-      <h2 className="text-lg font-semibold text-slate-100">환경 변수</h2>
-      <p className="text-sm text-slate-300">
-        `.env.local` 파일에 아래 값을 추가하고, service-role 키는 서버 빌드
-        환경에서만 주입하세요.
-      </p>
-      <ul className="space-y-3">
-        {envVariables.map((item) => (
-          <li
-            key={item.key}
-            className="rounded-lg border border-slate-800 bg-slate-950/50 p-3"
-          >
-            <p className="font-medium text-slate-100">{item.key}</p>
-            <p className="text-xs text-slate-300">{item.description}</p>
-          </li>
-        ))}
-      </ul>
-      <p className="text-xs text-slate-400">
-        환경 스키마는 `src/backend/config/index.ts`에서 zod로 검증되며, 누락 시
-        명확한 오류를 발생시킵니다.
-      </p>
-    </div>
-  );
-}
-
-function DirectoryOverview() {
-  return (
-    <div className="space-y-4 rounded-xl border border-slate-700 bg-slate-900/60 p-6">
-      <h2 className="text-lg font-semibold text-slate-100">
-        SuperNext 주요 디렉터리
-      </h2>
-      <ul className="space-y-3">
-        {directorySummary.map((item) => (
-          <li
-            key={item.path}
-            className="rounded-lg border border-slate-800 bg-slate-950/50 p-3"
-          >
-            <p className="text-sm font-semibold text-slate-100">{item.path}</p>
-            <p className="text-xs text-slate-300">{item.description}</p>
-            <p className="text-xs text-slate-400">{item.title}</p>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
-function BackendOverview() {
-  return (
-    <div className="space-y-4 rounded-xl border border-slate-700 bg-slate-900/60 p-6">
-      <h2 className="text-lg font-semibold text-slate-100">
-        SuperNext 백엔드 빌딩 블록
-      </h2>
-      <ul className="space-y-3">
-        {backendBuildingBlocks.map((item, index) => (
-          <li
-            key={item.title + index}
-            className="flex items-start gap-3 rounded-lg border border-slate-800 bg-slate-950/50 p-3"
-          >
-            <div className="mt-0.5 text-indigo-300">{item.icon}</div>
-            <div>
-              <p className="font-medium text-slate-100">{item.title}</p>
-              <p className="text-xs text-slate-300">{item.description}</p>
-            </div>
-          </li>
-        ))}
-      </ul>
-      <p className="text-xs text-slate-400">
-        예시 라우터는 `src/features/example/backend/route.ts`, 서비스 로직은
-        `src/features/example/backend/service.ts`, 공통 스키마는
-        `src/features/example/backend/schema.ts`에서 관리하며 Supabase
-        `public.example` 테이블과 통신합니다.
-      </p>
-    </div>
+      {/* CTA 섹션 */}
+      <section className="px-6 py-20">
+        <div className="mx-auto max-w-xl text-center">
+          <h2 className="mb-4 text-2xl font-semibold text-slate-900">지금 바로 시작하세요</h2>
+          <p className="mb-8 text-slate-500">학습자 또는 강사로 가입하고 첫 코스를 탐색해보세요.</p>
+          <Button size="lg" asChild>
+            <Link href="/signup">무료 가입하기</Link>
+          </Button>
+        </div>
+      </section>
+    </main>
   );
 }
