@@ -3,9 +3,16 @@
 import { useCallback, useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import { match } from "ts-pattern";
 import { useRouter, useSearchParams } from "next/navigation";
 import { getSupabaseBrowserClient } from "@/lib/supabase/browser-client";
 import { useCurrentUser } from "@/features/auth/hooks/useCurrentUser";
+import {
+  LEARNER_HOME_PATH,
+  INSTRUCTOR_HOME_PATH,
+  OPERATOR_HOME_PATH,
+  ONBOARDING_PATH,
+} from "@/constants/auth";
 
 type LoginPageProps = {
   params: Promise<Record<string, never>>;
@@ -15,17 +22,28 @@ export default function LoginPage({ params }: LoginPageProps) {
   void params;
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { refresh, isAuthenticated } = useCurrentUser();
+  const { refresh, isAuthenticated, user } = useCurrentUser();
   const [formState, setFormState] = useState({ email: "", password: "" });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    if (isAuthenticated) {
-      const redirectedFrom = searchParams.get("redirectedFrom") ?? "/";
+    if (!isAuthenticated) return;
+
+    const redirectedFrom = searchParams.get("redirectedFrom");
+    if (redirectedFrom) {
       router.replace(redirectedFrom);
+      return;
     }
-  }, [isAuthenticated, router, searchParams]);
+
+    const roleHome = match(user?.role)
+      .with("learner", () => LEARNER_HOME_PATH)
+      .with("instructor", () => INSTRUCTOR_HOME_PATH)
+      .with("operator", () => OPERATOR_HOME_PATH)
+      .otherwise(() => ONBOARDING_PATH);
+
+    router.replace(roleHome);
+  }, [isAuthenticated, user, router, searchParams]);
 
   const handleChange = useCallback(
     (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -63,15 +81,13 @@ export default function LoginPage({ params }: LoginPageProps) {
         }
 
         await refresh();
-        const redirectedFrom = searchParams.get("redirectedFrom") ?? "/";
-        router.replace(redirectedFrom);
       } catch {
         setErrorMessage("로그인 처리 중 오류가 발생했습니다.");
       } finally {
         setIsSubmitting(false);
       }
     },
-    [formState.email, formState.password, refresh, router, searchParams]
+    [formState.email, formState.password, refresh]
   );
 
   if (isAuthenticated) {
