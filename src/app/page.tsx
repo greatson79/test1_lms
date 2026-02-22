@@ -52,7 +52,7 @@ export default function Home() {
     router.replace(ROLE_HOME[user.role]);
   }, [isLoading, isAuthenticated, user, router]);
 
-  if (isLoading || isAuthenticated) {
+  if (isAuthenticated) {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
