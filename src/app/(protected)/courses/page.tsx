@@ -1,8 +1,9 @@
 'use client';
 
 import { Suspense } from 'react';
+import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { BookOpen } from 'lucide-react';
+import { BookOpen, LayoutDashboard } from 'lucide-react';
 import { useRoleGuard } from '@/hooks/useRoleGuard';
 import { useCourseListQuery } from '@/features/courses/hooks/useCourseListQuery';
 import { CourseCard } from '@/features/courses/components/course-card';
@@ -73,9 +74,18 @@ export default function CoursesPage({ params }: CoursesPageProps) {
 
   return (
     <main className="mx-auto max-w-6xl px-4 py-8">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-slate-900">코스 카탈로그</h1>
-        <p className="text-sm text-slate-500 mt-1">다양한 코스를 탐색하고 수강신청 하세요.</p>
+      <div className="mb-6 flex items-start justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900">코스 카탈로그</h1>
+          <p className="text-sm text-slate-500 mt-1">다양한 코스를 탐색하고 수강신청 하세요.</p>
+        </div>
+        <Link
+          href="/dashboard"
+          className="flex items-center gap-1.5 rounded-md border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+        >
+          <LayoutDashboard className="h-4 w-4" />
+          내 대시보드
+        </Link>
       </div>
 
       <div className="flex flex-col gap-6">
