@@ -3,6 +3,8 @@ export {
   EnrollResponseSchema,
   EnrollmentDtoSchema,
   CancelEnrollmentResponseSchema,
+  EnrollmentStatusSchema,
+  EnrollmentStatusResponseSchema,
 } from '@/features/enrollments/backend/schema';
 
 export type {
@@ -10,4 +12,6 @@ export type {
   EnrollResponse,
   EnrollmentDto,
   CancelEnrollmentResponse,
+  EnrollmentStatus,
+  EnrollmentStatusResponse,
 } from '@/features/enrollments/backend/schema';

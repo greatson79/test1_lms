@@ -17,6 +17,8 @@ import {
   createReport,
   listReports,
   updateReport,
+  listPublicCategories,
+  listPublicDifficulties,
   listCategories,
   createCategory,
   updateCategory,
@@ -26,6 +28,24 @@ import {
 } from './service';
 
 export const registerOperatorRoutes = (app: Hono<AppEnv>) => {
+  // ============================================================
+  // 공개 메타데이터 (인증 불필요)
+  // ============================================================
+
+  // GET /api/metadata/categories
+  app.get('/api/metadata/categories', async (c) => {
+    const supabase = getSupabase(c);
+    const result = await listPublicCategories(supabase);
+    return respond(c, result);
+  });
+
+  // GET /api/metadata/difficulties
+  app.get('/api/metadata/difficulties', async (c) => {
+    const supabase = getSupabase(c);
+    const result = await listPublicDifficulties(supabase);
+    return respond(c, result);
+  });
+
   // ============================================================
   // 신고 접수 (인증된 모든 역할)
   // ============================================================

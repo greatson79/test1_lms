@@ -6,10 +6,32 @@ import { withAuth } from '@/backend/middleware/auth';
 import { validateBody } from '@/backend/middleware/validate-body';
 import { enrollmentErrorCodes } from './error';
 import { EnrollRequestSchema } from './schema';
-import { enrollCourse, cancelEnrollment } from './service';
+import { enrollCourse, cancelEnrollment, getEnrollmentStatus } from './service';
 import type { EnrollRequest } from './schema';
 
 export const registerEnrollmentRoutes = (app: Hono<AppEnv>) => {
+  app.get('/api/enrollments/:courseId', withAuth(), async (c) => {
+    const currentUser = getCurrentUser(c);
+
+    if (!currentUser) {
+      return respond(c, failure(401, enrollmentErrorCodes.forbidden, '인증이 필요합니다.'));
+    }
+
+    if (currentUser.role !== 'learner') {
+      return respond(c, failure(403, enrollmentErrorCodes.forbidden, '학습자만 조회할 수 있습니다.'));
+    }
+
+    const courseId = c.req.param('courseId');
+
+    if (!UUID_REGEX.test(courseId)) {
+      return respond(c, failure(400, enrollmentErrorCodes.courseNotFound, '올바르지 않은 코스 ID입니다.'));
+    }
+
+    const supabase = getSupabase(c);
+    const result = await getEnrollmentStatus(supabase, currentUser.id, courseId);
+    return handleServiceResult(c, result, 'Enrollment status fetch failed');
+  });
+
   app.post('/api/enrollments', withAuth(), validateBody(EnrollRequestSchema), async (c) => {
     const currentUser = getCurrentUser(c);
 

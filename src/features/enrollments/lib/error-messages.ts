@@ -13,4 +13,5 @@ export const enrollmentErrorMessages: Record<
   [enrollmentErrorCodes.forbidden]: '권한이 없습니다.',
   [enrollmentErrorCodes.upsertFailed]: '수강신청에 실패했습니다. 잠시 후 다시 시도해 주세요.',
   [enrollmentErrorCodes.cancelFailed]: '수강취소에 실패했습니다. 잠시 후 다시 시도해 주세요.',
+  [enrollmentErrorCodes.fetchFailed]: '수강 상태 조회에 실패했습니다. 잠시 후 다시 시도해 주세요.',
 };

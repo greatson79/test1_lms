@@ -1,7 +1,13 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { failure, success, type HandlerResult } from '@/backend/http/response';
 import { enrollmentErrorCodes, type EnrollmentServiceError } from './error';
-import type { EnrollRequest, EnrollResponse, EnrollmentDto, CancelEnrollmentResponse } from './schema';
+import type {
+  EnrollRequest,
+  EnrollResponse,
+  EnrollmentDto,
+  CancelEnrollmentResponse,
+  EnrollmentStatusResponse,
+} from './schema';
 
 type EnrollmentRow = {
   id: string;
@@ -83,6 +89,37 @@ export const enrollCourse = async (
   }
 
   return success({ enrollment: mapEnrollmentRow(inserted), action: 'enrolled' }, 201);
+};
+
+export const getEnrollmentStatus = async (
+  supabase: SupabaseClient,
+  learnerId: string,
+  courseId: string,
+): Promise<HandlerResult<EnrollmentStatusResponse, EnrollmentServiceError>> => {
+  const { data, error } = await supabase
+    .from('enrollments')
+    .select('enrolled_at, cancelled_at')
+    .eq('course_id', courseId)
+    .eq('learner_id', learnerId)
+    .maybeSingle<{ enrolled_at: string; cancelled_at: string | null }>();
+
+  if (error) {
+    return failure(500, enrollmentErrorCodes.fetchFailed, error.message);
+  }
+
+  if (!data) {
+    return success({ status: 'none' as const, enrolledAt: null, cancelledAt: null });
+  }
+
+  if (data.cancelled_at !== null) {
+    return success({
+      status: 'cancelled' as const,
+      enrolledAt: data.enrolled_at,
+      cancelledAt: data.cancelled_at,
+    });
+  }
+
+  return success({ status: 'enrolled' as const, enrolledAt: data.enrolled_at, cancelledAt: null });
 };
 
 export const cancelEnrollment = async (

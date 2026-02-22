@@ -451,6 +451,19 @@ const updateMeta = async (
 // 카테고리 공개 서비스 함수
 // ============================================================
 
+export const listPublicCategories = async (
+  supabase: AppSupabaseClient,
+): Promise<HandlerResult<CategoryListResponse, OperatorServiceError>> => {
+  const { data } = await supabase
+    .from('categories')
+    .select('id, name, is_active, created_at, updated_at')
+    .eq('is_active', true)
+    .order('name', { ascending: true });
+
+  const rows = (data ?? []) as unknown as MetaRow[];
+  return success({ categories: rows.map(mapMetaToCategoryDto) });
+};
+
 export const listCategories = async (
   supabase: AppSupabaseClient,
 ): Promise<HandlerResult<CategoryListResponse, OperatorServiceError>> => {
@@ -480,6 +493,19 @@ export const updateCategory = async (
 // ============================================================
 // 난이도 공개 서비스 함수
 // ============================================================
+
+export const listPublicDifficulties = async (
+  supabase: AppSupabaseClient,
+): Promise<HandlerResult<DifficultyListResponse, OperatorServiceError>> => {
+  const { data } = await supabase
+    .from('difficulties')
+    .select('id, name, is_active, created_at, updated_at')
+    .eq('is_active', true)
+    .order('name', { ascending: true });
+
+  const rows = (data ?? []) as unknown as MetaRow[];
+  return success({ difficulties: rows.map(mapMetaToDifficultyDto) });
+};
 
 export const listDifficulties = async (
   supabase: AppSupabaseClient,

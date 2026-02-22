@@ -25,6 +25,7 @@ export const useCancelEnrollmentMutation = (courseId: string) => {
     mutationFn: () => cancelEnrollment(courseId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['course', courseId] });
+      queryClient.invalidateQueries({ queryKey: ['enrollment-status', courseId] });
     },
     throwOnError: false,
   });
