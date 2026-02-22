@@ -19,7 +19,7 @@ type AssignmentSubmissionStatusProps = {
 };
 
 type SubmissionState =
-  | { type: 'closed' }
+  | { type: 'closed'; submission: MySubmissionDto | null }
   | { type: 'no_submission' }
   | { type: 'resubmit'; submission: MySubmissionDto }
   | { type: 'submitted'; submission: MySubmissionDto };
@@ -30,7 +30,7 @@ const resolveSubmissionState = (assignment: AssignmentDto): SubmissionState => {
     assignment.status === 'closed' || (isPastDue && !assignment.allowLate);
 
   if (isEffectivelyClosed) {
-    return { type: 'closed' };
+    return { type: 'closed', submission: assignment.mySubmission };
   }
 
   if (!assignment.mySubmission) {
@@ -154,17 +154,20 @@ export const AssignmentSubmissionStatus = ({
       )}
 
       {match(state)
-        .with({ type: 'closed' }, () => (
-          <div className="flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4">
-            <XCircle className="h-5 w-5 text-slate-400 shrink-0" />
-            <div>
-              <p className="text-sm font-medium text-slate-600">마감된 과제입니다</p>
-              <p className="text-xs text-slate-400 mt-0.5">
-                {assignment.status === 'closed'
-                  ? '강사에 의해 강제 마감되었습니다.'
-                  : '마감 기한이 지났습니다.'}
-              </p>
+        .with({ type: 'closed' }, ({ submission }) => (
+          <div className="space-y-3">
+            <div className="flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4">
+              <XCircle className="h-5 w-5 text-slate-400 shrink-0" />
+              <div>
+                <p className="text-sm font-medium text-slate-600">마감된 과제입니다</p>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  {assignment.status === 'closed'
+                    ? '강사에 의해 강제 마감되었습니다.'
+                    : '마감 기한이 지났습니다.'}
+                </p>
+              </div>
             </div>
+            {submission && <SubmissionHistoryCard submission={submission} />}
           </div>
         ))
         .with({ type: 'no_submission' }, () =>

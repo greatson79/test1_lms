@@ -30,14 +30,15 @@ const DetailSkeleton = () => (
   </div>
 );
 
-const AssignmentStatusBadge = ({ status }: { status: InstructorAssignmentDto['status'] }) => {
-  const { label, variant } = match(status)
-    .with('draft', () => ({ label: '초안', variant: 'secondary' as const }))
-    .with('published', () => ({ label: '게시됨', variant: 'default' as const }))
-    .with('closed', () => ({ label: '마감됨', variant: 'outline' as const }))
+const AssignmentStatusBadge = ({ effectiveStatus }: { effectiveStatus: InstructorAssignmentDto['effectiveStatus'] }) => {
+  const { label, variant, className } = match(effectiveStatus)
+    .with('draft', () => ({ label: '초안', variant: 'secondary' as const, className: '' }))
+    .with('published', () => ({ label: '게시됨', variant: 'default' as const, className: '' }))
+    .with('overdue', () => ({ label: '마감 초과', variant: 'secondary' as const, className: 'bg-orange-100 text-orange-700 hover:bg-orange-100' }))
+    .with('closed', () => ({ label: '마감됨', variant: 'outline' as const, className: '' }))
     .exhaustive();
 
-  return <Badge variant={variant}>{label}</Badge>;
+  return <Badge variant={variant} className={className}>{label}</Badge>;
 };
 
 export default function InstructorAssignmentPage({ params }: InstructorAssignmentPageProps) {
@@ -106,7 +107,7 @@ export default function InstructorAssignmentPage({ params }: InstructorAssignmen
             <div className="flex flex-col gap-2">
               <div className="flex items-center gap-3">
                 <h2 className="text-2xl font-semibold text-slate-900">{data.assignment.title}</h2>
-                <AssignmentStatusBadge status={data.assignment.status} />
+                <AssignmentStatusBadge effectiveStatus={data.assignment.effectiveStatus} />
               </div>
             </div>
             <div className="flex items-center gap-2">

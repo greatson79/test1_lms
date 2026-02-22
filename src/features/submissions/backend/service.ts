@@ -196,12 +196,12 @@ export const resubmitAssignment = async (
     return failure(404, submissionErrorCodes.submissionNotFound, '기존 제출 내역이 없습니다.');
   }
 
-  if (!assignment.allow_resubmit) {
-    return failure(403, submissionErrorCodes.resubmitNotAllowed, '재제출이 허용되지 않는 과제입니다.');
-  }
-
   if (existing.status !== 'resubmission_required') {
     return failure(409, submissionErrorCodes.resubmitNotRequested, '재제출 요청 상태가 아닙니다.');
+  }
+
+  if (!assignment.allow_resubmit) {
+    return failure(403, submissionErrorCodes.resubmitNotAllowed, '재제출이 허용되지 않는 과제입니다.');
   }
 
   const resubmitDeadlineCheck = checkDeadline(assignment as AssignmentRow);

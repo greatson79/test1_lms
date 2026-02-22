@@ -58,6 +58,7 @@ export const SubmissionForm = ({
   const {
     register,
     handleSubmit,
+    watch,
     formState: { errors },
     setError,
     clearErrors,
@@ -108,6 +109,7 @@ export const SubmissionForm = ({
   }, [clearErrors, onCancel]);
 
   const isPending = activeMutation.isPending;
+  const contentText = watch('contentText');
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 rounded-lg border border-slate-200 p-4">
@@ -159,7 +161,7 @@ export const SubmissionForm = ({
         >
           취소
         </Button>
-        <Button type="submit" size="sm" disabled={isPending}>
+        <Button type="submit" size="sm" disabled={isPending || !contentText?.trim()}>
           {isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
           {SUBMIT_BUTTON_LABELS[mode]}
         </Button>
