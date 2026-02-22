@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { match } from 'ts-pattern';
 import { ClipboardList } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -25,24 +26,26 @@ const StatusBadge = ({ status }: StatusBadgeProps) => {
 };
 
 export const InstructorCourseCard = ({ course }: InstructorCourseCardProps) => (
-  <Card className="flex flex-col gap-2">
-    <CardHeader className="pb-2">
-      <div className="flex items-start justify-between gap-2">
-        <CardTitle className="line-clamp-2 text-base leading-snug">{course.title}</CardTitle>
-        <StatusBadge status={course.status} />
-      </div>
-    </CardHeader>
-    <CardContent>
-      {course.pendingCount > 0 ? (
-        <div className="flex items-center gap-1.5">
-          <ClipboardList className="h-4 w-4 text-blue-500" />
-          <span className="text-sm font-medium text-blue-600">
-            채점 대기 {course.pendingCount}건
-          </span>
+  <Link href={`/instructor/courses/${course.id}`}>
+    <Card className="flex flex-col gap-2 transition-colors hover:border-slate-300 hover:bg-slate-50">
+      <CardHeader className="pb-2">
+        <div className="flex items-start justify-between gap-2">
+          <CardTitle className="line-clamp-2 text-base leading-snug">{course.title}</CardTitle>
+          <StatusBadge status={course.status} />
         </div>
-      ) : (
-        <p className="text-sm text-slate-400">채점 대기 없음</p>
-      )}
-    </CardContent>
-  </Card>
+      </CardHeader>
+      <CardContent>
+        {course.pendingCount > 0 ? (
+          <div className="flex items-center gap-1.5">
+            <ClipboardList className="h-4 w-4 text-blue-500" />
+            <span className="text-sm font-medium text-blue-600">
+              채점 대기 {course.pendingCount}건
+            </span>
+          </div>
+        ) : (
+          <p className="text-sm text-slate-400">채점 대기 없음</p>
+        )}
+      </CardContent>
+    </Card>
+  </Link>
 );
